@@ -1,0 +1,30 @@
+# Windows 설치 파일 설정. `npm run dist` → dist/AINews-Setup-<버전>.exe
+appId: com.ainews.desktop # main/index.ts의 APP_ID와 같아야 알림이 앱 이름으로 뜬다
+productName: AINews
+copyright: Copyright © 2026 Youngmin
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**
+  - package.json
+# 수집 소스·모델·프롬프트 설정은 앱 밖 resources/config에 둔다 (main/index.ts의 configDir)
+extraResources:
+  - from: config
+    to: config
+asarUnpack:
+  - '**/*.node'
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.png
+nsis:
+  oneClick: false
+  perMachine: false # 사용자 폴더에 설치 (관리자 권한 불필요)
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: AI 브리핑
+  artifactName: AINews-Setup-${version}.${ext}
+  deleteAppDataOnUninstall: false # 지워도 저장한 기사·메모는 남긴다

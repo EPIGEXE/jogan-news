@@ -158,6 +158,7 @@ ai-news/
 
 | 대상 | 위치 |
 |---|---|
-| 동작 설정 | `config/sources.yaml`, `interests.yaml`, `models.yaml`, `pricing.yaml`, `prompts/*.md` (설치판은 `resources/config`) |
+| 동작 설정 | `config/sources.yaml`, `interests.yaml`, `models.yaml`, `pricing.yaml`, `prompts/*.md` (설치판은 설치 폴더의 `resources/config`) |
+| 설치 파일 | `npm run dist` → `dist/AINews-Setup-<버전>.exe` (설정: `electron-builder.yml`, 아이콘: `build/icon.png`) |
 | 사용자 데이터 | `%APPDATA%\AINews\` — `ainews.db`(DB), `diagnostics.log`(진단 기록), `groq-key.bin`(암호화된 API 키) |
 | 사용자 설정 | DB의 `settings` 테이블 (월 예산, 하루 상한, 브리핑 크기) |
