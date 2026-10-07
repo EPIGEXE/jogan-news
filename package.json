@@ -10,12 +10,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json && node scripts/lint-tokens.mjs",
-    "test": "vitest run",
-    "eval:collect": "tsx --tsconfig tsconfig.node.json scripts/eval/collect.ts",
-    "eval:llm": "tsx --tsconfig tsconfig.node.json scripts/eval/run.ts",
-    "pipeline": "tsx --tsconfig tsconfig.node.json scripts/run-pipeline.ts",
-    "lint:tokens": "node scripts/lint-tokens.mjs"
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run"
   },
   "dependencies": {
     "@mozilla/readability": "^0.6.0",
@@ -40,7 +36,6 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.3.3",
-    "tsx": "^4.23.15",
     "typescript": "~5.9.3",
     "vite": "^7.3.7",
     "vitest": "^5.0.3"

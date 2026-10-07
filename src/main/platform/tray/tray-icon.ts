@@ -1,9 +1,8 @@
 import { crc32, deflateSync } from 'node:zlib'
 import { nativeImage, type NativeImage } from 'electron'
+import type { TrayState } from '../../services/ports'
 
 // 트레이 아이콘을 상태별 색 원으로 직접 그린다. 디자인 아이콘이 생기기 전까지 쓰는 임시 구현.
-
-export type TrayState = 'idle' | 'busy' | 'new' | 'offline' | 'error'
 
 const COLORS: Record<TrayState, [number, number, number]> = {
   idle: [99, 102, 241],

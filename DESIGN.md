@@ -81,6 +81,28 @@ v3까지는 Python으로 설계했지만, 상주형 데스크톱 앱에 필요�
 - **보안:** Renderer는 `contextIsolation: true`, `nodeIntegration: false`로 실행합니다. preload에서 노출한 함수만 쓸 수 있습니다. 기사 본문은 HTML을 정제(sanitize)한 뒤에 표시합니다.
 - **데이터 위치:** `%APPDATA%\AINews\`에 둡니다(`app.getPath('userData')`). DB, 로그, 임베딩 모델 캐시, 백업이 여기에 저장됩니다.
 
+### 3.1 Main 프로세스 계층
+
+```
+  들어오는 쪽   ipc/       화면 요청 → 서비스 호출만 (영역별: digest, library, settings, diagnostics)
+              triggers/  OS 이벤트(로그인·잠금 해제·절전 복귀·8시 타이머) → 서비스 호출만
+                  │
+                  ▼
+  서비스       services/  앱이 하는 일: BriefingService(생성 흐름), SettingsService(API 키·예산·자동 시작),
+                         ContentService(브리핑·기사·라이브러리), DiagnosticsService
+                         Electron을 import하지 않고, 바깥 기능은 services/ports.ts의 인터페이스로만 쓴다
+                  │ 포트
+                  ▼
+  나가는 쪽    platform/  포트 구현: 트레이, 창, 알림, 키 보관(safeStorage), 네트워크, Worker 클라이언트,
+                         화면 방송, 자동 시작. 상태는 모듈 변수가 아니라 클래스 안에 둔다
+
+  조립         index.ts   객체를 만들고 연결만 한다 (composition root)
+  진단         diagnostics/  기록(DiagLog), 개발용 스크린샷
+```
+
+- 의존 방향: services/는 Electron과 다른 계층을 import하지 않고, ipc/·triggers/는 platform/을 직접 import하지 않으며(index.ts가 주입), platform/은 ipc/·triggers/를 import하지 않습니다.
+- 서비스는 가짜 포트로 단위 테스트합니다 (예: 오프라인이면 파이프라인을 부르지 않음, 실패하면 실패 알림).
+
 ## 4. 실행 시점 설계
 
 ### 4.1 자동 시작
@@ -223,7 +245,7 @@ v3까지는 Python으로 설계했지만, 상주형 데스크톱 앱에 필요�
 - **작업대처럼:** 메뉴 / 목록 / 기사 패널의 3단 구성입니다. 키보드만으로 훑고, 저장하고, 메모할 수 있어야 합니다.
 - **테마:** 라이트("조간")가 기본입니다. 다크("야간판")는 같은 토큰 이름에 값만 바꿔 넣을 수 있게 처음부터 CSS 변수로 만듭니다(추후).
 
-**디자인 토큰** (`src/renderer/src/styles/tokens.css`의 Tailwind `@theme`가 유일한 원본. 토큰 이름이 곧 유틸리티 이름: `--color-paper` → `bg-paper`, `--text-headline` → `text-headline`. Tailwind 기본 색·글꼴·크기·그림자는 `initial`로 지워서 토큰 밖의 값은 쓸 수 없고, `bg-[#fff]` 같은 임의 값은 `npm run lint:tokens`(typecheck에 포함)가 막는다)
+**디자인 토큰** (`src/renderer/src/styles/tokens.css`의 Tailwind `@theme`가 유일한 원본. 토큰 이름이 곧 유틸리티 이름: `--color-paper` → `bg-paper`, `--text-headline` → `text-headline`. Tailwind 기본 색·글꼴·크기·그림자는 `initial`로 지워서 토큰 밖의 값은 쓸 수 없다. `bg-[#fff]` 같은 임의 값은 쓰지 않는다)
 
 | 분류 | 토큰 | 값 (조간) | 용도 |
 |---|---|---|---|
@@ -465,7 +487,6 @@ GPT-OSS는 영어 중심으로 학습된 모델이라 한국어 요약 품질을
   - JSON 형식이 맞는지
   - 응답 시간과 토큰 사용량
 - **결과물:** 세 모델의 결과를 나란히 보는 비교 표를 만들고, 직접 보고 ①-b 모델을 확정합니다.
-- 스크립트: `npm run eval:llm`
 
 ## 8. 수집 소스 (LLM·에이전트 중심)
 
@@ -552,7 +573,7 @@ GPT-OSS는 영어 중심으로 학습된 모델이라 한국어 요약 품질을
 | 런타임 | Electron (최신 안정판), Node 22 (현재 PC에 설치된 v22.18.0 사용) |
 | 개발·빌드 도구 | `electron-vite` (개발 서버, 빠른 반영), `electron-builder` (NSIS 설치 파일) |
 | 언어 | TypeScript (strict 모드) |
-| 화면 | React + Vite + **Tailwind CSS v4** (토큰은 `tokens.css`의 `@theme`, 기본 팔레트 초기화, 임의 값은 `npm run lint:tokens`로 금지). 라우팅·데이터 구독은 라이브러리 없이 직접 작성 |
+| 화면 | React + Vite + **Tailwind CSS v4** (토큰은 `tokens.css`의 `@theme`, 기본 팔레트 초기화). 라우팅·데이터 구독은 라이브러리 없이 직접 작성 |
 | 화면 ↔ Worker | preload `contextBridge` + 타입이 정의된 IPC 계약(`shared/ipc.ts`), Main ↔ Worker는 `MessagePort` |
 | DB | Node 내장 `node:sqlite` (FTS5 포함, 네이티브 모듈 빌드 불필요) + 직접 작성한 마이그레이션(`PRAGMA user_version`). 벡터 검색은 6단계에서 `sqlite-vec` |
 | 수집 | Node 내장 `fetch`, `rss-parser`, `p-limit` |
@@ -579,17 +600,14 @@ ai-news/
 │  ├─ pricing.yaml          모델별 단가 (비용 계산용)
 │  └─ prompts/              triage.md, summary.md, digest.md, chat.md, quick-actions.yaml
 ├─ src/
-│  ├─ main/                 Main 프로세스
-│  │  ├─ index.ts           진입점, 중복 실행 방지, 앱 수명 주기
-│  │  ├─ tray.ts
-│  │  ├─ window.ts
-│  │  ├─ notify.ts
-│  │  ├─ triggers.ts        앱 시작 / unlock-screen / resume / 오전 8시 타이머
-│  │  ├─ autostart.ts
-│  │  ├─ shortcuts.ts
-│  │  ├─ secrets.ts         safeStorage (API 키)
-│  │  ├─ worker-host.ts     Worker 실행, 재시작, 메시지 중계
-│  │  └─ ipc.ts
+│  ├─ main/                 Main 프로세스 (3.1절)
+│  │  ├─ index.ts           조립만 (composition root)
+│  │  ├─ ipc/               화면 요청 입구: digest, library, settings, diagnostics
+│  │  ├─ triggers/          OS 이벤트 입구: power-triggers (앱 시작·잠금 해제·절전 복귀·8시)
+│  │  ├─ services/          ports.ts, briefing-, settings-, content-, diagnostics-service (+ 테스트)
+│  │  ├─ platform/          tray/, window, notifier, secrets, network, autostart, netcheck,
+│  │  │                     worker-client, renderer-events, system(단축키·외부 링크)
+│  │  └─ diagnostics/       diag-log, dev-screenshot
 │  ├─ preload/
 │  │  └─ index.ts           contextBridge로 화면에 노출할 API
 │  ├─ worker/               utilityProcess
@@ -606,8 +624,6 @@ ai-news/
 │  │  ├─ assets/fonts/      Hahmlet, Pretendard (woff2)
 │  │  └─ lib/
 │  └─ shared/               types.ts, ipc.ts (IPC 계약), schemas.ts (zod)
-├─ scripts/
-│  └─ eval-llm.ts           한국어 품질 비교 테스트
 ├─ resources/               아이콘 (트레이 상태별)
 └─ DESIGN.md
 ```

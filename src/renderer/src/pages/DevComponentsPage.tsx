@@ -73,7 +73,7 @@ export function DevComponentsPage() {
           <div className="grid grid-cols-2 gap-3 wide:grid-cols-3">
             {COLOR_TOKENS.map((t) => (
               <div key={t} className="flex items-center gap-2 text-meta">
-                {/* 토큰 이름으로 색을 보여주는 견본이라 인라인 style을 허용한다 */}
+                {/* 토큰 이름으로 색을 보여주는 견본이라 인라인 style로 변수를 넣는다 */}
                 <span className="size-7 border border-rule" style={{ background: `var(--color-${t})` }} />
                 <code>{t}</code>
               </div>

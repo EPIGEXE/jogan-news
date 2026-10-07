@@ -1,17 +1,29 @@
-import { writeFileSync } from 'node:fs'
+// Main 프로세스 진입점이자 조립 지점(composition root).
+// 여기서는 객체를 만들고 서로 연결만 한다. 흐름은 services/, Electron 기능은 platform/,
+// 바깥에서 들어오는 요청은 ipc/(화면)와 triggers/(OS 이벤트)에 있다.
+
 import { join } from 'node:path'
-import { app, globalShortcut } from 'electron'
+import { app } from 'electron'
+import type { Route } from '@shared/ipc'
 import type { TriggerReason } from '@shared/schedule'
-import { IPC, type Route } from '@shared/ipc'
-import { broadcast, broadcastProgress, generateBriefing } from './briefing'
-import { logEvent } from './diag-log'
+import { captureAndQuit } from './diagnostics/dev-screenshot'
+import { DiagLog } from './diagnostics/diag-log'
 import { registerIpc } from './ipc'
-import { showNotification } from './notify'
-import { getApiKey } from './secrets'
-import { createTray } from './tray'
-import { fire, startTriggers, type TriggerDeps } from './triggers'
-import { createWindow, getWindow, markQuitting, showWindow } from './window'
-import { WorkerHost } from './worker-host'
+import { LoginItemAutostart } from './platform/autostart'
+import { runNetworkChecks } from './platform/netcheck'
+import { ElectronNetwork } from './platform/network'
+import { BriefingNotifications, DesktopNotifier } from './platform/notifier'
+import { BroadcastEvents } from './platform/renderer-events'
+import { SafeStorageKeyStore } from './platform/secrets'
+import { openExternalUrl, registerShortcut, unregisterShortcuts } from './platform/system'
+import { TrayController } from './platform/tray/tray'
+import { MainWindow } from './platform/window'
+import { WorkerClient } from './platform/worker-client'
+import { BriefingService } from './services/briefing-service'
+import { ContentService } from './services/content-service'
+import { DiagnosticsService } from './services/diagnostics-service'
+import { SettingsService } from './services/settings-service'
+import { PowerTriggers } from './triggers/power-triggers'
 
 const APP_ID = 'com.ainews.desktop'
 const SHORTCUT = 'Control+Alt+N'
@@ -19,18 +31,12 @@ const SHORTCUT = 'Control+Alt+N'
 // 개발용: 별도 데이터 폴더로 실행 (스크린샷 확인 등). 설치판에서는 무시한다.
 if (!app.isPackaged && process.env['AINEWS_USER_DATA']) app.setPath('userData', process.env['AINEWS_USER_DATA'])
 
+let stop: (() => void) | null = null
+
 if (!app.requestSingleInstanceLock()) {
   app.quit()
 } else {
-  app.on('second-instance', () => openWindow())
   app.whenReady().then(main)
-}
-
-let worker: WorkerHost
-
-function openWindow(route?: Route): void {
-  showWindow()
-  if (route) getWindow()?.webContents.send(IPC.navigate, route)
 }
 
 function configDir(): string {
@@ -38,71 +44,99 @@ function configDir(): string {
   return app.isPackaged ? join(process.resourcesPath, 'config') : join(app.getAppPath(), 'config')
 }
 
-function generate(reason: TriggerReason): Promise<void> {
-  return generateBriefing(worker, reason, openWindow)
-}
-
-function testNotification(): void {
-  showNotification('알림 테스트', '이 알림을 클릭하면 앱 창이 열려야 합니다', () => openWindow())
-}
-
 function main(): void {
   app.setAppUserModelId(APP_ID)
   const hidden = process.argv.includes('--hidden')
 
-  worker = new WorkerHost({
+  // ── 바깥 기능 (platform) ──
+  const events = new BroadcastEvents()
+  const diag = new DiagLog(join(app.getPath('userData'), 'diagnostics.log'), (e) => events.diagEvent(e))
+  const log = diag.log
+  const window = new MainWindow(log)
+  const openWindow = (route?: Route) => window.show(route)
+  const keys = new SafeStorageKeyStore()
+  const autostart = new LoginItemAutostart(log)
+  const worker = new WorkerClient({
     dbPath: join(app.getPath('userData'), 'ainews.db'),
     configDir: configDir(),
-    getApiKey,
-    onProgress: broadcastProgress,
-    onItemUpdated: (itemId) => broadcast(IPC.itemUpdated, itemId)
+    getApiKey: () => keys.get(),
+    onProgress: (p) => events.progress(p),
+    onItemUpdated: (itemId) => events.itemUpdated(itemId),
+    log
   })
+
+  // 트레이와 알림은 서로를 참조한다(알림 클릭 → 트레이 상태 초기화, 트레이 메뉴 → 새로고침·알림 테스트).
+  // 그래서 트레이를 먼저 만들고, 트레이 메뉴 동작은 아래에서 만들어질 객체를 늦게 부른다.
+  let triggers: PowerTriggers | null = null
+  let notifications: BriefingNotifications | null = null
+  const tray = new TrayController(
+    {
+      openToday: () => openWindow('today'),
+      refresh: () => void triggers?.fire('manual'),
+      testNotification: () => notifications?.test(),
+      quit: () => app.quit()
+    },
+    autostart
+  )
+  notifications = new BriefingNotifications(new DesktopNotifier(log), openWindow, tray)
+
+  // ── 서비스 ──
+  const content = new ContentService(worker)
+  const settings = new SettingsService({ keys, autostart, worker })
+  const briefing = new BriefingService({
+    network: new ElectronNetwork(),
+    status: tray,
+    notifier: notifications,
+    worker,
+    events,
+    log
+  })
+
+  // ── 들어오는 쪽 (OS 이벤트, 화면 요청) ──
+  triggers = new PowerTriggers({
+    getLastDigestDate: () => content.getLastDigestDate(),
+    generate: (reason: TriggerReason) => briefing.generate(reason),
+    log
+  })
+  const diagnostics = new DiagnosticsService({
+    listEvents: () => diag.list(),
+    testNotification: () => notifications?.test(),
+    runNetworkChecks,
+    nextTimerAt: () => triggers?.nextTimerAt ?? null,
+    isPackaged: app.isPackaged,
+    content
+  })
+  registerIpc({
+    content,
+    briefing,
+    settings,
+    diagnostics,
+    runNow: () => void triggers?.fire('manual'),
+    openExternal: openExternalUrl
+  })
+
+  // ── 시작 ──
   worker.start()
+  window.create(!hidden)
+  tray.create()
+  registerShortcut(SHORTCUT, () => openWindow(), log)
+  app.on('second-instance', () => openWindow())
 
-  const triggerDeps: TriggerDeps = {
-    getLastDigestDate: () => worker.call('getLastDigestDate'),
-    generate
+  if (!app.isPackaged && process.env['AINEWS_SCREENSHOT']) {
+    captureAndQuit(window, process.env['AINEWS_SCREENSHOT'], process.env['AINEWS_ROUTE'] as Route | undefined)
   }
 
-  registerIpc({ worker, runNow: () => void fire('manual', triggerDeps), testNotification })
-  createWindow(!hidden)
-  createTray({
-    openWindow: () => openWindow('today'),
-    testNotification,
-    manualTrigger: () => void fire('manual', triggerDeps)
-  })
+  log('ready', hidden ? '숨김 모드로 시작 (자동 시작)' : '일반 시작')
+  triggers.start()
+  events.digestUpdated()
 
-  if (!globalShortcut.register(SHORTCUT, () => openWindow())) {
-    logEvent('shortcut-failed', `${SHORTCUT} 등록 실패 (다른 프로그램이 사용 중일 수 있음)`)
+  stop = () => {
+    window.markQuitting()
+    worker.stop()
   }
-
-  if (!app.isPackaged && process.env['AINEWS_SCREENSHOT']) captureAndQuit(process.env['AINEWS_SCREENSHOT'])
-
-  logEvent('ready', hidden ? '숨김 모드로 시작 (자동 시작)' : '일반 시작')
-  startTriggers(triggerDeps)
-  broadcast(IPC.digestUpdated)
 }
 
-/** 개발용: 창을 그린 뒤 화면을 PNG로 저장하고 종료한다. AINEWS_ROUTE로 시작 화면을 고른다. */
-function captureAndQuit(path: string): void {
-  const win = getWindow()
-  if (!win) return
-  win.webContents.once('did-finish-load', () => {
-    const route = process.env['AINEWS_ROUTE'] as Route | undefined
-    setTimeout(() => {
-      if (route) win.webContents.send(IPC.navigate, route)
-      setTimeout(async () => {
-        writeFileSync(path, (await win.webContents.capturePage()).toPNG())
-        app.quit()
-      }, 1500)
-    }, 2500)
-  })
-}
-
-app.on('before-quit', () => {
-  markQuitting()
-  worker?.stop()
-})
-app.on('will-quit', () => globalShortcut.unregisterAll())
+app.on('before-quit', () => stop?.())
+app.on('will-quit', () => unregisterShortcuts())
 // 창을 모두 닫아도 트레이에 남아 있도록 기본 종료 동작을 막는다.
 app.on('window-all-closed', () => {})

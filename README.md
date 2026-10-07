@@ -1,6 +1,8 @@
 # AI 브리핑
 
-LLM·에이전트 소식을 매일 모아 한국어로 요약해 주는 Windows 상주형 데스크톱 앱. 설계는 [DESIGN.md](DESIGN.md) 참고.
+LLM·에이전트 소식을 매일 모아 한국어로 요약해 주는 Windows 상주형 데스크톱 앱.
+
+문서: [개요](docs/01-overview.md) · [아키텍처](docs/02-architecture.md) · [DB 구조](docs/03-database.md) · [주요 흐름](docs/04-business-flows.md) · 설계 기록 [DESIGN.md](DESIGN.md)
 
 현재 단계: **3단계 완료** — 매일 브리핑(수집 → 선별 → 요약), 저장·메모·태그, 라이브러리·아카이브 검색, 자동 실행
 
@@ -28,15 +30,11 @@ npm start          # 빌드한 앱 실행
 ## 개발 도구
 
 ```sh
-npm run pipeline            # 앱 없이 파이프라인 1회 실행 → .data/dev.db
-npm run pipeline -- --show  # 마지막 브리핑 출력
-npm run typecheck           # 타입 검사 + 디자인 토큰 우회 검사(lint:tokens)
+npm run typecheck
 npm test
-npm run eval:collect        # 요약 모델 비교용 기사 수집
-npm run eval:llm            # 모델 비교 리포트 → eval/output/report.html
 ```
 
-- 스타일은 Tailwind v4. 색·크기는 `src/renderer/src/styles/tokens.css`(@theme)에 있는 토큰 유틸리티만 씁니다(`bg-paper`, `text-ink-muted` …). 임의 값(`bg-[#fff]`)과 직접 쓴 색은 `npm run lint:tokens`가 막습니다.
+- 스타일은 Tailwind v4. 색·크기는 `src/renderer/src/styles/tokens.css`(@theme)에 있는 토큰 유틸리티만 씁니다(`bg-paper`, `text-ink-muted` …). 임의 값(`bg-[#fff]`)이나 색을 직접 쓰지 않습니다.
 - 개발 모드에서는 메뉴 하단 "부품 견본"에서 컴포넌트 상태별 모습을 볼 수 있습니다.
 - 화면 확인용 스크린샷(개발 모드만): `AINEWS_USER_DATA=<폴더> AINEWS_SCREENSHOT=<파일.png> AINEWS_ROUTE=today npx electron .`
 - `npm run dev`가 `does not provide an export named 'BrowserWindow'`로 실패하면, 터미널에 `ELECTRON_RUN_AS_NODE` 환경 변수가 켜져 있는 것입니다. 일반 터미널에서 실행하세요.

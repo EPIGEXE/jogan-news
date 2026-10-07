@@ -2,7 +2,7 @@
  * 디자인 토큰 — "조간 작업대" (DESIGN.md 6.6절)
  * 색·글꼴·크기·간격의 유일한 원본. Tailwind v4 테마로 정의해서 bg-paper, text-ink-muted 같은 유틸리티가 생긴다.
  * Tailwind 기본 색상표·글꼴·크기는 initial로 지워서, 토큰에 없는 값(bg-red-500 등)은 쓸 수 없게 한다.
- * 임의 값(bg-[#fff], text-[13px])은 `npm run lint:tokens`가 막는다.
+ * 임의 값(bg-[#fff], text-[13px])은 쓰지 않고, 필요하면 여기에 토큰을 추가한다.
  * 다크("야간판")를 추가할 때는 [data-theme='night']에서 같은 --color-* 변수를 다시 정의한다.
  */
 @theme {

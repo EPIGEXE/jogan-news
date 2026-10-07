@@ -9,7 +9,7 @@ import { enrichSavedItem } from './knowledge/enrich'
 import { createGroq } from './llm/groq'
 import { runPipeline, type PipelineDeps } from './pipeline/run'
 
-// Worker의 RPC 구현. Electron에 의존하지 않아서 스크립트(scripts/run-pipeline.ts)에서도 그대로 쓴다.
+// Worker의 RPC 구현. Electron에 의존하지 않는다 (Worker 프로세스의 메시지 처리는 index.ts).
 
 type Async<T> = { [K in keyof T]: T[K] extends (...a: infer A) => infer R ? (...a: A) => Promise<Awaited<R>> | Awaited<R> : never }
 

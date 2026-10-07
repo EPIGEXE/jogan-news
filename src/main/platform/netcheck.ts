@@ -14,7 +14,8 @@ const TARGETS: { target: string; url: string }[] = [
 ]
 
 const TIMEOUT_MS = 10_000
-const UA = 'AINews/0.0.1 (+desktop briefing app)'
+// 괄호 안에 설명을 붙이면 일부 사이트(GeekNews 등)가 봇으로 보고 403을 준다.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AINews/0.1'
 
 async function check(
   target: string,

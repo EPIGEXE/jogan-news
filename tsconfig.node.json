@@ -19,7 +19,6 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
-    "src/worker/**/*",
-    "scripts/**/*"
+    "src/worker/**/*"
   ]
 }

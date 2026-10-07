@@ -8,7 +8,7 @@ import type {
   WorkerResult,
   WorkerToMain
 } from '@shared/worker-protocol'
-import { logEvent } from './diag-log'
+import type { LogFn, WorkerRpc } from '../services/ports'
 
 // Worker(utilityProcess)를 띄우고 RPC로 부른다. Worker가 죽으면 잠시 뒤 다시 띄운다.
 
@@ -19,7 +19,7 @@ interface Pending {
 
 const RESTART_DELAY_MS = 3000
 
-export class WorkerHost {
+export class WorkerClient implements WorkerRpc {
   private child: UtilityProcess | null = null
   private nextId = 1
   private readonly pending = new Map<number, Pending>()
@@ -33,6 +33,7 @@ export class WorkerHost {
       getApiKey(): string | null
       onProgress(p: RunProgress): void
       onItemUpdated(itemId: number): void
+      log: LogFn
     }
   ) {}
 
@@ -56,7 +57,7 @@ export class WorkerHost {
       for (const p of this.pending.values()) p.reject(new Error('Worker가 종료됐습니다.'))
       this.pending.clear()
       if (this.stopping) return
-      logEvent('worker-exit', `코드 ${code}, ${RESTART_DELAY_MS / 1000}초 뒤 다시 시작`)
+      this.opts.log('worker-exit', `코드 ${code}, ${RESTART_DELAY_MS / 1000}초 뒤 다시 시작`)
       setTimeout(() => this.start(), RESTART_DELAY_MS)
     })
     this.post({
@@ -107,7 +108,7 @@ export class WorkerHost {
         this.opts.onItemUpdated(msg.itemId)
         break
       case 'log':
-        if (msg.level !== 'info') logEvent(`worker-${msg.level}`, msg.message)
+        if (msg.level !== 'info') this.opts.log(`worker-${msg.level}`, msg.message)
         else if (!app.isPackaged) console.log(`[worker] ${msg.message}`)
         break
     }
