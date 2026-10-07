@@ -1,0 +1,23 @@
+# 관심 키워드. 규칙 점수(LLM에 보내기 전 1차 거르기)에 쓴다. weight는 0~1.
+# 제목과 요약에 키워드가 있으면 weight만큼 점수를 더하고, 합은 1에서 자른다.
+keywords:
+  - { term: agent, weight: 0.5 }
+  - { term: agentic, weight: 0.5 }
+  - { term: 에이전트, weight: 0.5 }
+  - { term: MCP, weight: 0.5 }
+  - { term: tool use, weight: 0.4 }
+  - { term: LLM, weight: 0.4 }
+  - { term: language model, weight: 0.4 }
+  - { term: 언어 모델, weight: 0.4 }
+  - { term: reasoning, weight: 0.3 }
+  - { term: RAG, weight: 0.3 }
+  - { term: open-weight, weight: 0.3 }
+  - { term: fine-tun, weight: 0.3 }
+  - { term: Claude, weight: 0.3 }
+  - { term: GPT, weight: 0.3 }
+  - { term: Gemini, weight: 0.3 }
+  - { term: OpenAI, weight: 0.3 }
+  - { term: Anthropic, weight: 0.3 }
+  - { term: coding agent, weight: 0.4 }
+  - { term: benchmark, weight: 0.2 }
+  - { term: inference, weight: 0.2 }

@@ -1,0 +1,15 @@
+# 모델별 단가 (USD per 1M tokens). 비용 계산에만 쓰며, Groq 가격이 바뀌면 이 파일만 고친다.
+# 출처: https://console.groq.com/docs/models (2026-10-07 확인)
+# cached_input: 자동 프롬프트 캐싱 적용분 (GPT-OSS는 50% 할인, Qwen은 캐싱 미지원이라 입력가와 같음)
+openai/gpt-oss-20b:
+  input: 0.075
+  cached_input: 0.0375
+  output: 0.30
+openai/gpt-oss-120b:
+  input: 0.15
+  cached_input: 0.075
+  output: 0.60
+qwen/qwen3.8-27b:
+  input: 0.80
+  cached_input: 0.80
+  output: 4.00

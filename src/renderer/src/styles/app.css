@@ -1,0 +1,49 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+@layer base {
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-paper font-body text-body text-ink antialiased;
+  }
+
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-accent;
+  }
+
+  /* 스크롤바: 지면 색에 맞춘 얇은 막대 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-control bg-rule;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-control-border;
+  }
+}
+
+/* 유틸리티로 표현하기 어려운 것만 여기에 둔다 */
+@layer components {
+  /* 줄 노트: 줄 간격(28px)마다 가는 선 */
+  .lined-paper {
+    background-image: repeating-linear-gradient(
+      to bottom,
+      transparent 0,
+      transparent 27px,
+      var(--color-memo-line) 27px,
+      var(--color-memo-line) 28px
+    );
+    background-attachment: local;
+    line-height: 28px;
+  }
+}
