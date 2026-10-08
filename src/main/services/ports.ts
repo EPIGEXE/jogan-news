@@ -2,7 +2,7 @@
 // 구현은 platform/에 있고, index.ts가 둘을 연결한다.
 
 import type { ApiKeyStatus, Route } from '@shared/ipc'
-import type { RunProgress } from '@shared/types'
+import type { ChatEvent, RunProgress } from '@shared/types'
 import type { WorkerMethod, WorkerParams, WorkerResult } from '@shared/worker-protocol'
 
 /** 진단 기록 남기기 (diagnostics.log + 진단 화면) */
@@ -10,9 +10,19 @@ export type LogFn = (kind: string, detail?: string) => void
 
 export type TrayState = 'idle' | 'busy' | 'new' | 'offline' | 'error'
 
+/** 직접 그린 제목 표시줄의 창 버튼 */
+export interface WindowControls {
+  minimize(): void
+  toggleMaximize(): void
+  /** 닫기 = 트레이로 숨기기 */
+  close(): void
+  isMaximized(): boolean
+}
+
 /** 앱 상태 표시 (트레이 아이콘) */
 export interface StatusPort {
-  set(state: TrayState): void
+  /** detail: 툴팁에 붙일 설명 (새 브리핑의 오늘의 한 줄, 실패 이유 등) */
+  set(state: TrayState, detail?: string): void
 }
 
 /** 인터넷 연결 확인 */
@@ -39,6 +49,7 @@ export interface RendererEvents {
   digestUpdated(): void
   itemUpdated(itemId: number): void
   navigate(route: Route): void
+  chat(event: ChatEvent): void
 }
 
 /** API 키 보관 */

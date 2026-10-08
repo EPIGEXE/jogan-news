@@ -3,10 +3,14 @@ import {
   DEFAULT_SETTINGS,
   type AppSettings,
   type Category,
+  type ChatMessageDTO,
+  type ChatScope,
   type DigestDTO,
   type DigestEntryDTO,
   type DigestStats,
   type DigestSummaryDTO,
+  type HighlightDTO,
+  type HighlightRange,
   type ItemDetailDTO,
   type LibraryItemDTO,
   type SearchParams,
@@ -43,6 +47,7 @@ export interface ItemRow {
   summary_ko: string | null
   key_points: string | null
   why_ko: string | null
+  follow_up_of: number | null
 }
 
 const nowIso = () => new Date().toISOString()
@@ -144,6 +149,27 @@ export function getCandidates(db: Db, sinceIso: string, today: string): ItemRow[
   )
 }
 
+/** 지난 며칠 동안 브리핑에 실린 기사 (오늘 브리핑은 빼고). 7일 중복 확인에 쓴다 */
+export function recentPublished(db: Db, today: string, days: number): { id: number; date: string; title: string }[] {
+  const from = new Date(`${today}T00:00:00`)
+  from.setDate(from.getDate() - days)
+  const fromKey = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
+  return all<{ id: number; date: string; title: string }>(
+    db,
+    `SELECT i.id, d.date, coalesce(i.title_ko, i.title) AS title
+     FROM digest_entries de JOIN digests d ON d.id = de.digest_id JOIN items i ON i.id = de.item_id
+     WHERE d.date < ? AND d.date >= ?
+     ORDER BY d.date DESC, de.rank`,
+    today,
+    fromKey
+  )
+}
+
+/** 지난 브리핑 기사의 후속 소식으로 표시한다 */
+export function markFollowUp(db: Db, itemId: number, previousId: number): void {
+  run(db, 'UPDATE items SET follow_up_of = ? WHERE id = ?', previousId, itemId)
+}
+
 /**
  * 같은 소식으로 묶인 항목들을 대표 항목 하나로 합친다. 나머지 항목의 출처는 대표의 other_sources로 옮기고
  * merged_into를 표시해 다음 후보에서 빠지게 한다.
@@ -206,16 +232,46 @@ export function saveSummary(
   reindexItem(db, id)
 }
 
-export function getContent(db: Db, itemId: number): { paragraphs: string[]; fullText: boolean } | null {
-  const row = one<{ paragraphs: string; full_text: number }>(db, 'SELECT paragraphs, full_text FROM contents WHERE item_id = ?', itemId)
-  return row ? { paragraphs: JSON.parse(row.paragraphs) as string[], fullText: row.full_text === 1 } : null
+export interface Content {
+  paragraphs: string[]
+  fullText: boolean
+  /** 문단별 번역. 아직 번역하지 않았으면 null */
+  paragraphsKo: (string | null)[] | null
+}
+
+export function getContent(db: Db, itemId: number): Content | null {
+  const row = one<{ paragraphs: string; full_text: number; paragraphs_ko: string | null }>(
+    db,
+    'SELECT paragraphs, full_text, paragraphs_ko FROM contents WHERE item_id = ?',
+    itemId
+  )
+  if (!row) return null
+  return {
+    paragraphs: JSON.parse(row.paragraphs) as string[],
+    fullText: row.full_text === 1,
+    paragraphsKo: row.paragraphs_ko ? (JSON.parse(row.paragraphs_ko) as (string | null)[]) : null
+  }
+}
+
+/** 문단별 번역을 저장한다. 본문을 다시 추출하면(saveContent) 번역은 지워진다 */
+export function saveTranslation(db: Db, itemId: number, paragraphsKo: (string | null)[], model: string): void {
+  run(
+    db,
+    'UPDATE contents SET paragraphs_ko = ?, translated_at = ?, translate_model = ? WHERE item_id = ?',
+    JSON.stringify(paragraphsKo),
+    nowIso(),
+    model,
+    itemId
+  )
+  reindexItem(db, itemId)
 }
 
 export function saveContent(db: Db, itemId: number, paragraphs: string[], fullText: boolean): void {
   run(
     db,
     `INSERT INTO contents (item_id, paragraphs, full_text, extracted_at) VALUES (?, ?, ?, ?)
-     ON CONFLICT(item_id) DO UPDATE SET paragraphs = excluded.paragraphs, full_text = excluded.full_text, extracted_at = excluded.extracted_at`,
+     ON CONFLICT(item_id) DO UPDATE SET paragraphs = excluded.paragraphs, full_text = excluded.full_text, extracted_at = excluded.extracted_at,
+       paragraphs_ko = NULL, translated_at = NULL, translate_model = NULL`,
     itemId,
     JSON.stringify(paragraphs),
     fullText ? 1 : 0,
@@ -352,7 +408,9 @@ interface DigestRow {
 const ITEM_VIEW_COLUMNS = `
   i.*, r.read_at, s.saved_at, n.body AS memo,
   (SELECT group_concat(t.name, char(31)) FROM item_tags it JOIN tags t ON t.id = it.tag_id WHERE it.item_id = i.id) AS tag_list,
-  (SELECT max(d.date) FROM digest_entries de2 JOIN digests d ON d.id = de2.digest_id WHERE de2.item_id = i.id) AS digest_date`
+  (SELECT max(d.date) FROM digest_entries de2 JOIN digests d ON d.id = de2.digest_id WHERE de2.item_id = i.id) AS digest_date,
+  (SELECT coalesce(p.title_ko, p.title) FROM items p WHERE p.id = i.follow_up_of) AS follow_up_title,
+  (SELECT max(d.date) FROM digest_entries de3 JOIN digests d ON d.id = de3.digest_id WHERE de3.item_id = i.follow_up_of) AS follow_up_date`
 
 const ITEM_VIEW_JOINS = `
   LEFT JOIN reads r ON r.item_id = i.id
@@ -365,6 +423,8 @@ interface ItemViewRow extends ItemRow {
   memo: string | null
   tag_list: string | null
   digest_date: string | null
+  follow_up_title: string | null
+  follow_up_date: string | null
 }
 
 interface EntryRow extends ItemViewRow {
@@ -393,7 +453,11 @@ function toEntryBase(r: ItemViewRow): Omit<DigestEntryDTO, 'rank' | 'section' | 
     isRead: r.read_at !== null,
     isSaved: r.saved_at !== null,
     memo: r.memo ?? '',
-    tags: splitTags(r.tag_list)
+    tags: splitTags(r.tag_list),
+    followUpOf:
+      r.follow_up_of !== null && r.follow_up_title !== null
+        ? { itemId: r.follow_up_of, titleKo: r.follow_up_title, digestDate: r.follow_up_date }
+        : null
   }
 }
 
@@ -454,8 +518,21 @@ export function getItemDetail(db: Db, itemId: number): ItemDetailDTO | null {
     savedAt: r.saved_at,
     digestDate: r.digest_date,
     paragraphs: content?.paragraphs ?? (r.snippet ? [r.snippet] : []),
-    fullText: content?.fullText ?? false
+    fullText: content?.fullText ?? false,
+    paragraphsKo: content?.paragraphsKo ?? null,
+    translation: !needsTranslation(r) ? 'not_needed' : content?.paragraphsKo ? 'done' : 'missing',
+    highlights: listHighlights(db, itemId)
   }
+}
+
+const HANGUL = /[가-힣]/g
+
+/** 한국어 기사는 번역하지 않는다. 소스 언어가 ko이거나 제목·첫 부분이 대부분 한글이면 한국어로 본다 */
+export function needsTranslation(r: Pick<ItemRow, 'lang' | 'title' | 'snippet'>): boolean {
+  if (r.lang === 'ko') return false
+  const sample = `${r.title} ${r.snippet.slice(0, 300)}`.replace(/\s/g, '')
+  const hangul = sample.match(HANGUL)?.length ?? 0
+  return sample.length === 0 || hangul / sample.length < 0.3
 }
 
 // ── 전문 검색 ─────────────────────────────────────────
@@ -469,8 +546,10 @@ export function reindexItem(db: Db, itemId: number): void {
      SELECT i.id,
             i.title || ' ' || coalesce(i.title_ko, ''),
             coalesce(i.summary_ko, '') || ' ' || coalesce(i.key_points, '') || ' ' || coalesce(i.snippet, '') || ' ' ||
-              coalesce((SELECT group_concat(value, ' ') FROM json_each(c.paragraphs)), ''),
-            coalesce(n.body, '')
+              coalesce((SELECT group_concat(value, ' ') FROM json_each(c.paragraphs)), '') || ' ' ||
+              coalesce((SELECT group_concat(value, ' ') FROM json_each(c.paragraphs_ko) WHERE value IS NOT NULL), ''),
+            coalesce(n.body, '') || ' ' ||
+              coalesce((SELECT group_concat(h.text || ' ' || h.note, ' ') FROM highlights h WHERE h.item_id = i.id), '')
      FROM items i
      LEFT JOIN contents c ON c.item_id = i.id
      LEFT JOIN notes n ON n.item_id = i.id
@@ -659,4 +738,154 @@ export function saveMemo(db: Db, itemId: number, body: string): string {
     reindexItem(db, itemId)
   })
   return at
+}
+
+// ── 하이라이트 ────────────────────────────────────────
+
+interface HighlightRow {
+  id: number
+  item_id: number
+  paragraph: number
+  variant: 'ko' | 'original'
+  start_offset: number
+  end_offset: number
+  text: string
+  note: string
+  created_at: string
+}
+
+const toHighlight = (r: HighlightRow): HighlightDTO => ({
+  id: r.id,
+  paragraph: r.paragraph,
+  variant: r.variant,
+  start: r.start_offset,
+  end: r.end_offset,
+  text: r.text,
+  note: r.note,
+  createdAt: r.created_at
+})
+
+export function listHighlights(db: Db, itemId: number): HighlightDTO[] {
+  return all<HighlightRow>(db, 'SELECT * FROM highlights WHERE item_id = ? ORDER BY paragraph, start_offset', itemId).map(toHighlight)
+}
+
+/**
+ * 하이라이트를 긋는다. 글자는 보관된 본문(번역문 또는 원문)에서 잘라 저장하고,
+ * 같은 문단·같은 판에서 겹치거나 맞닿는 하이라이트는 하나로 합친다(메모도 합침).
+ * 하이라이트를 그은 기사는 메모처럼 자동으로 저장한다. 새로 저장됐으면 newlySaved.
+ */
+export function addHighlights(db: Db, itemId: number, ranges: HighlightRange[]): { highlights: HighlightDTO[]; newlySaved: boolean } {
+  const content = getContent(db, itemId)
+  let newlySaved = false
+  tx(db, () => {
+    for (const r of ranges) {
+      const source = r.variant === 'ko' ? content?.paragraphsKo?.[r.paragraph - 1] : content?.paragraphs[r.paragraph - 1]
+      if (!source) continue
+      let start = Math.max(0, Math.min(r.start, r.end))
+      let end = Math.min(source.length, Math.max(r.start, r.end))
+      if (source.slice(start, end).trim() === '') continue
+      const overlapping = all<HighlightRow>(
+        db,
+        'SELECT * FROM highlights WHERE item_id = ? AND paragraph = ? AND variant = ? AND start_offset <= ? AND end_offset >= ?',
+        itemId,
+        r.paragraph,
+        r.variant,
+        end,
+        start
+      )
+      let createdAt = nowIso()
+      const notes: string[] = []
+      for (const o of overlapping) {
+        start = Math.min(start, o.start_offset)
+        end = Math.max(end, o.end_offset)
+        if (o.created_at < createdAt) createdAt = o.created_at
+        if (o.note.trim()) notes.push(o.note.trim())
+        run(db, 'DELETE FROM highlights WHERE id = ?', o.id)
+      }
+      run(
+        db,
+        'INSERT INTO highlights (item_id, paragraph, variant, start_offset, end_offset, text, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        itemId,
+        r.paragraph,
+        r.variant,
+        start,
+        end,
+        source.slice(start, end).trim(),
+        notes.join('\n'),
+        createdAt
+      )
+    }
+    const saved = db.prepare('INSERT OR IGNORE INTO saves (item_id, saved_at) VALUES (?, ?)').run(itemId, nowIso())
+    newlySaved = Number(saved.changes) > 0
+    reindexItem(db, itemId)
+  })
+  return { highlights: listHighlights(db, itemId), newlySaved }
+}
+
+/** 하이라이트 메모를 고친다. 그 기사의 하이라이트 목록을 돌려준다 */
+export function updateHighlightNote(db: Db, id: number, note: string): HighlightDTO[] {
+  const row = one<HighlightRow>(db, 'SELECT * FROM highlights WHERE id = ?', id)
+  if (!row) return []
+  run(db, 'UPDATE highlights SET note = ? WHERE id = ?', note, id)
+  reindexItem(db, row.item_id)
+  return listHighlights(db, row.item_id)
+}
+
+export function removeHighlight(db: Db, id: number): HighlightDTO[] {
+  const row = one<HighlightRow>(db, 'SELECT * FROM highlights WHERE id = ?', id)
+  if (!row) return []
+  run(db, 'DELETE FROM highlights WHERE id = ?', id)
+  reindexItem(db, row.item_id)
+  return listHighlights(db, row.item_id)
+}
+
+// ── AI 질문 대화 ─────────────────────────────────────
+
+export function chatScopeKey(scope: ChatScope): string {
+  return scope.kind === 'item' ? `item:${scope.itemId}` : `digest:${scope.date}`
+}
+
+interface ChatMessageRow {
+  id: number
+  role: 'user' | 'assistant'
+  content: string
+  citations: string
+  created_at: string
+}
+
+export function listChatMessages(db: Db, scope: ChatScope): ChatMessageDTO[] {
+  return all<ChatMessageRow>(
+    db,
+    `SELECT m.id, m.role, m.content, m.citations, m.created_at
+     FROM chat_messages m JOIN chats c ON c.id = m.chat_id
+     WHERE c.scope_key = ? ORDER BY m.id`,
+    chatScopeKey(scope)
+  ).map((r) => ({
+    id: r.id,
+    role: r.role,
+    content: r.content,
+    citations: JSON.parse(r.citations) as number[],
+    createdAt: r.created_at
+  }))
+}
+
+export function addChatMessage(
+  db: Db,
+  scope: ChatScope,
+  m: { role: 'user' | 'assistant'; content: string; citations?: number[]; model?: string }
+): ChatMessageDTO {
+  const at = nowIso()
+  const key = chatScopeKey(scope)
+  return tx(db, () => {
+    run(db, 'INSERT INTO chats (scope_key, created_at, updated_at) VALUES (?, ?, ?) ON CONFLICT(scope_key) DO UPDATE SET updated_at = excluded.updated_at', key, at, at)
+    const { id: chatId } = one<{ id: number }>(db, 'SELECT id FROM chats WHERE scope_key = ?', key)!
+    const r = db
+      .prepare('INSERT INTO chat_messages (chat_id, role, content, citations, model, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(chatId, m.role, m.content, JSON.stringify(m.citations ?? []), m.model ?? null, at)
+    return { id: Number(r.lastInsertRowid), role: m.role, content: m.content, citations: m.citations ?? [], createdAt: at }
+  })
+}
+
+export function clearChat(db: Db, scope: ChatScope): void {
+  run(db, 'DELETE FROM chats WHERE scope_key = ?', chatScopeKey(scope))
 }

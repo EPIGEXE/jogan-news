@@ -1,6 +1,6 @@
-# Windows 설치 파일 설정. `npm run dist` → dist/AINews-Setup-<버전>.exe
+# Windows 설치 파일 설정. `npm run dist` → dist/Jogan-Setup-<버전>.exe
 appId: com.ainews.desktop # main/index.ts의 APP_ID와 같아야 알림이 앱 이름으로 뜬다
-productName: AINews
+productName: Jogan # 표시 이름. 데이터 폴더는 main/index.ts에서 예전 이름(AINews)으로 고정
 copyright: Copyright © 2026 Youngmin
 directories:
   output: dist
@@ -25,6 +25,6 @@ nsis:
   allowToChangeInstallationDirectory: true
   createDesktopShortcut: true
   createStartMenuShortcut: true
-  shortcutName: AI 브리핑
-  artifactName: AINews-Setup-${version}.${ext}
+  shortcutName: Jogan
+  artifactName: Jogan-Setup-${version}.${ext}
   deleteAppDataOnUninstall: false # 지워도 저장한 기사·메모는 남긴다

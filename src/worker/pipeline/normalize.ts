@@ -40,3 +40,14 @@ export function cleanText(s: string | undefined | null, max = 2000): string {
   if (!s) return ''
   return s.replace(/\s+/g, ' ').trim().slice(0, max)
 }
+
+/** 줄 구분을 살려서 정리한다 (릴리스 노트처럼 목록이 많은 글). 빈 줄로 나눠 문단이 되게 한다 */
+export function cleanLines(s: string | undefined | null, max = 4000): string {
+  if (!s) return ''
+  return s
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter(Boolean)
+    .join('\n\n')
+    .slice(0, max)
+}

@@ -80,7 +80,15 @@ export const MemoPad = forwardRef<HTMLTextAreaElement, Props>(function MemoPad({
         onBlur={flush}
       />
       <div className="min-h-4">
-        <Caption>{statusText}</Caption>
+        <Caption>
+          {status.kind === 'saved' && (
+            // 저장될 때마다 작은 ✓가 찍힌다
+            <span key={status.at} className="mr-1 inline-block animate-stamp text-accent">
+              ✓
+            </span>
+          )}
+          {statusText}
+        </Caption>
       </div>
     </div>
   )

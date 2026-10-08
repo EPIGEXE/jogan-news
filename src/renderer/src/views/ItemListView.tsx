@@ -1,18 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ItemDetailDTO, LibraryItemDTO } from '@shared/types'
-import { ArticleDetail, type ToolTab } from '../components/article/ArticleDetail'
+import { ArticlePreview } from '../components/article/ArticlePreview'
 import { LibraryRow } from '../components/article/LibraryRow'
 import { DetailPane, ListPane } from '../components/layout/AppShell'
-import { KeyboardHints } from '../components/ui/KeyboardHints'
+import { SkeletonParagraphs } from '../components/ui/Skeleton'
 import { makeArticleHandlers, useItemDetail, type ArticleView } from '../lib/article'
 import { useListKeys } from '../lib/useListKeys'
-
-const HINTS = [
-  { keys: 'J K', label: '이동' },
-  { keys: 'S', label: '저장' },
-  { keys: 'M', label: '메모' },
-  { keys: 'Enter', label: '원문' }
-]
+import { ArticleReader } from './ArticleReader'
 
 interface Props {
   /** 목록 위 (제목, 검색창, 필터) */
@@ -21,19 +15,19 @@ interface Props {
   /** 저장·메모·태그를 목록 상태에 반영 */
   onPatch(itemId: number, patch: Partial<ArticleView>): void
   empty: ReactNode
-  /** 처음 고를 탭 (라이브러리는 메모, 아카이브 검색은 본문) */
-  defaultTool?: ToolTab
+  /** 읽기 화면의 "← …" 글자 */
+  backLabel: string
 }
 
-/** 기사 목록 + 기사 패널. 라이브러리와 아카이브 검색이 함께 쓴다 */
-export function ItemListView({ header, items, onPatch, empty, defaultTool = 'memo' }: Props) {
+/** 기사 목록 + 옆 패널(개요) + 읽기 화면. 라이브러리와 아카이브 검색이 함께 쓴다 */
+export function ItemListView({ header, items, onPatch, empty, backLabel }: Props) {
   const [selectedId, setSelectedId] = useState<number | null>(null)
-  const [tool, setTool] = useState<ToolTab>(defaultTool)
+  const [reading, setReading] = useState(false)
   const [view, setView] = useState<ItemDetailDTO | null>(null)
-  const memoRef = useRef<HTMLTextAreaElement>(null)
   const rowRefs = useRef(new Map<number, HTMLButtonElement>())
   const ids = useMemo(() => items.map((i) => i.itemId), [items])
 
+  // 목록 행에는 요약·핵심 포인트가 없어서, 고른 기사의 상세를 불러와 개요·읽기 화면에 쓴다
   const { detail, enriching, setEnriching } = useItemDetail(selectedId, (d) => {
     setView(d)
     onPatch(d.itemId, { tags: d.tags })
@@ -44,6 +38,7 @@ export function ItemListView({ header, items, onPatch, empty, defaultTool = 'mem
   useEffect(() => {
     if (selectedId !== null && ids.includes(selectedId)) return
     setSelectedId(ids[0] ?? null)
+    setReading(false)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids])
 
@@ -57,7 +52,7 @@ export function ItemListView({ header, items, onPatch, empty, defaultTool = 'mem
 
   const select = (id: number, scroll = false) => {
     setSelectedId(id)
-    if (scroll) rowRefs.current.get(id)?.scrollIntoView({ block: 'nearest' })
+    if (scroll) setTimeout(() => rowRefs.current.get(id)?.scrollIntoView({ block: 'nearest' }), 0)
   }
 
   const handlers = makeArticleHandlers(view, patch, () => setEnriching(true))
@@ -67,19 +62,38 @@ export function ItemListView({ header, items, onPatch, empty, defaultTool = 'mem
     selectedId,
     onSelect: (id) => select(id, true),
     onSave: handlers?.onToggleSave,
-    onMemo: () => {
-      setTool('memo')
-      setTimeout(() => memoRef.current?.focus(), 0)
-    },
-    onOpen: view ? () => handlers?.onOpenUrl(view.url) : undefined
+    onOpen: view ? () => setReading(true) : undefined,
+    onOriginal: view ? () => handlers?.onOpenUrl(view.url) : undefined,
+    enabled: !reading
   })
+
+  if (reading && view) {
+    const i = ids.indexOf(view.itemId)
+    const neighbor = (id: number | undefined) => {
+      const it = items.find((x) => x.itemId === id)
+      return it ? { title: it.titleKo, go: () => select(it.itemId) } : undefined
+    }
+    return (
+      <ArticleReader
+        entry={view}
+        onPatch={patch}
+        onBack={() => {
+          setReading(false)
+          setTimeout(() => rowRefs.current.get(view.itemId)?.scrollIntoView({ block: 'nearest' }), 0)
+        }}
+        backLabel={backLabel}
+        prev={neighbor(ids[i - 1])}
+        next={neighbor(ids[i + 1])}
+      />
+    )
+  }
 
   return (
     <>
       <ListPane label="기사 목록">
         <div className="flex min-h-full flex-col px-7 pt-6">
           {header}
-          <div className="flex-1 pb-6">
+          <div className="flex-1 pb-8">
             {items.length === 0 ? (
               empty
             ) : (
@@ -94,27 +108,32 @@ export function ItemListView({ header, items, onPatch, empty, defaultTool = 'mem
                       item={it}
                       selected={it.itemId === selectedId}
                       onSelect={() => select(it.itemId)}
+                      onOpen={() => {
+                        select(it.itemId)
+                        setReading(true)
+                      }}
                     />
                   </li>
                 ))}
               </ol>
             )}
           </div>
-          <div className="sticky bottom-0 border-t border-rule bg-paper py-3">
-            <KeyboardHints hints={HINTS} />
-          </div>
         </div>
       </ListPane>
       <DetailPane label="선택한 기사">
+        {selectedId !== null && !view && (
+          <div className="px-7 py-6">
+            <SkeletonParagraphs count={3} />
+          </div>
+        )}
         {view && handlers && (
-          <ArticleDetail
+          <ArticlePreview
             entry={view}
-            body={detail}
-            tool={tool}
-            onToolChange={setTool}
-            memoRef={memoRef}
+            onToggleSave={handlers.onToggleSave}
+            onOpenOriginal={() => handlers.onOpenUrl(view.url)}
+            onAddTag={handlers.onAddTag}
+            onRemoveTag={handlers.onRemoveTag}
             enriching={enriching}
-            {...handlers}
           />
         )}
       </DetailPane>

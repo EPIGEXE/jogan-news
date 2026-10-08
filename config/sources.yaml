@@ -1,5 +1,5 @@
 # 수집 소스. weight: 신뢰도 가중치(0~1.5), enabled: false면 수집하지 않음.
-# type: rss | arxiv | hf_papers | hackernews
+# type: rss | arxiv | hf_papers | hackernews | github_releases
 # kind: news | paper | community | release (브리핑 분류의 참고값. 최종 분류는 LLM이 정함)
 
 sources:
@@ -16,12 +16,46 @@ sources:
   - { id: simonw, name: Simon Willison, type: rss, kind: news, url: "https://simonwillison.net/atom/everything/", weight: 1.2 }
   - { id: latent-space, name: Latent Space, type: rss, kind: news, url: "https://www.latent.space/feed", weight: 1.0 }
 
+  # 개발자·엔지니어링 블로그 (구현 경험·설계 패턴·평가)
+  - { id: raschka, name: Ahead of AI, type: rss, kind: news, url: "https://magazine.sebastianraschka.com/feed", weight: 1.1 }
+  - { id: eugeneyan, name: Eugene Yan, type: rss, kind: news, url: "https://eugeneyan.com/rss/", weight: 1.0 }
+  - { id: lilianweng, name: Lilian Weng, type: rss, kind: news, url: "https://lilianweng.github.io/index.xml", weight: 1.1 }
+  - { id: hamel, name: Hamel Husain, type: rss, kind: news, url: "https://hamel.dev/index.xml", weight: 1.0 }
+  - { id: interconnects, name: Interconnects, type: rss, kind: news, url: "https://www.interconnects.ai/feed", weight: 1.0 }
+  - { id: philschmid, name: Philipp Schmid, type: rss, kind: news, url: "https://www.philschmid.de/rss", weight: 1.0 }
+  - { id: cloudflare-ai, name: Cloudflare Blog, type: rss, kind: news, url: "https://blog.cloudflare.com/tag/ai/rss/", weight: 0.9 }
+  - { id: github-blog-ai, name: GitHub Blog, type: rss, kind: news, url: "https://github.blog/ai-and-ml/feed/", weight: 0.9, keywordFilter: true }
+  - { id: together, name: Together AI, type: rss, kind: news, url: "https://www.together.ai/blog/rss.xml", weight: 0.9, keywordFilter: true }
+  # LangChain·LlamaIndex·Modal 블로그는 피드가 깨졌거나 없어서 뺐다 (2026-10 확인). 릴리스는 아래 GitHub 감시로 받는다.
+
+  # 주요 AI 라이브러리 릴리스 (메이저·마이너 버전만, 패치·프리릴리스 제외). 목록을 고쳐 감시 대상을 바꾼다
+  - id: gh-releases
+    name: GitHub 릴리스
+    type: github_releases
+    kind: release
+    weight: 1.0
+    repos:
+      - { repo: vllm-project/vllm, name: vLLM }
+      - { repo: ollama/ollama, name: Ollama }
+      - { repo: sgl-project/sglang, name: SGLang }
+      - { repo: huggingface/transformers, name: Transformers }
+      - { repo: langchain-ai/langgraph, name: LangGraph, match: "langgraph==" }
+      - { repo: langchain-ai/langchain, name: LangChain, match: "langchain==" }
+      - { repo: run-llama/llama_index, name: LlamaIndex }
+      - { repo: openai/openai-agents-python, name: OpenAI Agents SDK }
+      - { repo: pydantic/pydantic-ai, name: Pydantic AI }
+      - { repo: modelcontextprotocol/python-sdk, name: MCP Python SDK }
+      - { repo: huggingface/smolagents, name: smolagents }
+
   # 테크 뉴스
   - { id: techcrunch-ai, name: TechCrunch, type: rss, kind: news, url: "https://techcrunch.com/category/artificial-intelligence/feed/", weight: 0.9 }
   - { id: verge-ai, name: The Verge, type: rss, kind: news, url: "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml", weight: 0.8 }
 
   # 국내
   - { id: geeknews, name: GeekNews, type: rss, kind: community, url: "https://news.hada.io/rss/news", weight: 1.0, lang: ko, keywordFilter: true }
+  - { id: kakao-tech, name: 카카오 기술블로그, type: rss, kind: news, url: "https://tech.kakao.com/feed/", weight: 0.9, lang: ko, keywordFilter: true }
+  - { id: naver-d2, name: NAVER D2, type: rss, kind: news, url: "https://d2.naver.com/d2.atom", weight: 0.9, lang: ko, keywordFilter: true }
+  - { id: toss-tech, name: 토스 기술블로그, type: rss, kind: news, url: "https://toss.tech/rss.xml", weight: 0.9, lang: ko, keywordFilter: true }
 
   # 논문
   - { id: hf-papers, name: HF Daily Papers, type: hf_papers, kind: paper, weight: 1.0 }
@@ -41,3 +75,13 @@ sources:
     weight: 1.0
     queries: [LLM, GPT, Claude, Gemini, OpenAI, Anthropic, agent, agents, MCP, "open-weight", "language model"]
     minPoints: 60
+  - id: show-hn
+    name: Show HN
+    type: hackernews
+    kind: community
+    weight: 1.0
+    tags: show_hn
+    queries: [LLM, AI, agent, MCP, GPT, Claude, "open source", local]
+    minPoints: 30
+  # 하루 인기글 상위만. Reddit은 요청이 잦으면 429를 주므로 하루 한 번 수집에 맞다
+  - { id: r-localllama, name: r/LocalLLaMA, type: rss, kind: community, url: "https://www.reddit.com/r/LocalLLaMA/top/.rss?t=day", weight: 0.9, maxItems: 15 }

@@ -18,6 +18,20 @@ export class LoginItemAutostart implements AutostartPort {
     return app.getLoginItemSettings({ path, args }).openAtLogin
   }
 
+  /**
+   * 이름을 AINews → Jogan으로 바꾸면서 실행 파일 이름도 바뀌었다. 예전 실행 파일로 자동 시작이 켜져 있었으면
+   * 새 실행 파일로 다시 등록한다(같은 등록 이름이라 덮어쓴다). 설치판에서 시작할 때 한 번 부른다.
+   */
+  migrateRenamedExe(): void {
+    if (!app.isPackaged || this.isEnabled()) return
+    const { path, args } = this.options()
+    const old = app.getLoginItemSettings({ path, args }).launchItems?.find((i) => i.enabled && /AINews\.exe$/i.test(i.path))
+    if (old) {
+      this.log('autostart', `예전 실행 파일(${old.path})의 자동 시작을 새 실행 파일로 옮김`)
+      this.set(true)
+    }
+  }
+
   set(on: boolean): boolean {
     app.setLoginItemSettings({ ...this.options(), openAtLogin: on })
     const result = this.isEnabled()

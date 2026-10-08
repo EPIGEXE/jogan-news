@@ -1,22 +1,59 @@
+import { useEffect, useRef, useState } from 'react'
 import type { Route } from '@shared/ipc'
 import { ErrorNotice, EmptyState } from '../components/app/Notice'
 import { RunProgress } from '../components/app/RunProgress'
 import { SinglePane } from '../components/layout/AppShell'
 import { Button } from '../components/ui/Button'
+import { SkeletonLine, SkeletonList } from '../components/ui/Skeleton'
 import { todayKey } from '../lib/format'
 import type { DigestState } from '../lib/useDigest'
 import { DigestView } from '../views/DigestView'
 
-/** 오늘: 최신 브리핑. 아직 없으면 만들기 안내와 진행 상황 */
-export function TodayPage({ state, onNavigate }: { state: DigestState; onNavigate(route: Route): void }) {
-  const { digest, loading, running, progress, error, runNow, patchEntry } = state
+interface Props {
+  state: DigestState
+  onNavigate(route: Route): void
+  focusItemId?: number | null
+  onFocusHandled?(): void
+}
 
-  if (loading) return <SinglePane label="오늘">{null}</SinglePane>
+/** 오늘: 최신 브리핑. 아직 없으면 만들기 안내와 진행 상황 */
+export function TodayPage({ state, onNavigate, focusItemId, onFocusHandled }: Props) {
+  const { digest, loading, running, progress, error, runNow, patchEntry } = state
+  // 이 화면을 보는 중에 생성이 끝나 새 브리핑이 도착했는지 (지면 머리 이중선이 한 번 그어진다)
+  const wasRunning = useRef(running)
+  const [fresh, setFresh] = useState(false)
+  useEffect(() => {
+    if (wasRunning.current && !running && !error) setFresh(true)
+    wasRunning.current = running
+  }, [running, error])
+
+  if (loading) {
+    return (
+      <SinglePane label="오늘">
+        <div className="flex max-w-190 flex-col gap-3 px-7 py-6">
+          <SkeletonLine className="w-1/3" />
+          <SkeletonLine className="h-8 w-5/6" />
+          <SkeletonList />
+        </div>
+      </SinglePane>
+    )
+  }
+
+  const errorNotice = error && !running && (
+    <ErrorNotice>
+      {error}{' '}
+      {error.includes('API 키') && (
+        <Button variant="text" onClick={() => onNavigate('settings')}>
+          설정으로 이동
+        </Button>
+      )}
+    </ErrorNotice>
+  )
 
   if (!digest) {
     return (
       <SinglePane label="오늘">
-        <div className="max-w-180 px-7 py-6">
+        <div className="flex max-w-190 flex-col gap-4 px-7 py-6">
           <EmptyState
             title="아직 브리핑이 없습니다"
             action={
@@ -29,19 +66,8 @@ export function TodayPage({ state, onNavigate }: { state: DigestState; onNavigat
           >
             로그인하거나 잠금을 해제하면 하루 한 번 자동으로 만들어집니다. 지금 바로 만들 수도 있습니다.
           </EmptyState>
-          <div className="flex flex-col gap-4">
-            {running && progress && <RunProgress progress={progress} />}
-            {error && (
-              <ErrorNotice>
-                {error}{' '}
-                {error.includes('API 키') && (
-                  <Button variant="text" onClick={() => onNavigate('settings')}>
-                    설정으로 이동
-                  </Button>
-                )}
-              </ErrorNotice>
-            )}
-          </div>
+          {running && progress && <RunProgress progress={progress} />}
+          {errorNotice}
         </div>
       </SinglePane>
     )
@@ -49,25 +75,34 @@ export function TodayPage({ state, onNavigate }: { state: DigestState; onNavigat
 
   const isToday = digest.date === todayKey()
 
+  // 오늘 브리핑이 있으면 다시 만들지 않는다: 같은 날 후보는 거의 같아서 결과도 비슷하고,
+  // 낮 동안 쌓인 새 글은 다음 날 브리핑에 들어간다. 오늘 것이 없을 때만 만들기 버튼을 보여준다.
   return (
     <DigestView
       digest={digest}
       onPatch={patchEntry}
+      focusItemId={focusItemId}
+      onFocusHandled={onFocusHandled}
       notice={isToday ? undefined : '오늘 브리핑이 아직 없어 지난 브리핑을 보여줍니다'}
+      fresh={fresh}
       headerActions={
-        <div className="mt-1 flex flex-wrap items-center gap-3">
-          {running && progress ? (
-            <div className="min-w-0 flex-1">
-              <RunProgress progress={progress} />
-            </div>
-          ) : (
-            <Button variant="text" onClick={runNow}>
-              {isToday ? '다시 만들기' : '오늘 브리핑 만들기'}
+        !isToday && !running ? (
+          <div className="mt-1">
+            <Button variant="solid" icon="refresh" onClick={runNow}>
+              오늘 브리핑 만들기
             </Button>
-          )}
-        </div>
+          </div>
+        ) : undefined
       }
-      belowHeader={error && !running ? <ErrorNotice>{error}</ErrorNotice> : undefined}
+      belowHeader={
+        running && progress ? (
+          <div className="pt-4">
+            <RunProgress progress={progress} />
+          </div>
+        ) : errorNotice ? (
+          <div className="pt-4">{errorNotice}</div>
+        ) : undefined
+      }
     />
   )
 }

@@ -2,7 +2,8 @@
 
 export const CATEGORIES = [
   'model_release',
-  'agent_tooling',
+  'tools',
+  'applied',
   'research',
   'community',
   'industry',
@@ -12,11 +13,23 @@ export type Category = (typeof CATEGORIES)[number]
 
 export const CATEGORY_LABEL: Record<Category, string> = {
   model_release: '모델 출시',
-  agent_tooling: '에이전트·툴링',
+  tools: '도구·라이브러리',
+  applied: '실전·응용',
   research: '주목할 논문',
   community: '커뮤니티 화제',
   industry: '업계·정책',
   other: '그 외 주요 소식'
+}
+
+/** 분류 필터 탭처럼 좁은 곳에 쓰는 짧은 이름 */
+export const CATEGORY_SHORT: Record<Category, string> = {
+  model_release: '모델',
+  tools: '도구',
+  applied: '실전',
+  research: '논문',
+  community: '커뮤니티',
+  industry: '업계',
+  other: '그 외'
 }
 
 /** 브리핑 섹션: 상위 5개는 'top', 나머지는 분류별 */
@@ -52,6 +65,8 @@ export interface DigestEntryDTO {
   isSaved: boolean
   memo: string
   tags: string[]
+  /** 지난 브리핑 소식의 후속 보도면 그 지난 기사 */
+  followUpOf: FollowUpRef | null
 }
 
 /** 라이브러리·아카이브 검색 결과 한 줄 */
@@ -71,6 +86,31 @@ export interface LibraryItemDTO {
   tags: string[]
 }
 
+/** 하이라이트를 그은 본문 판: 번역문 또는 원문 (문단 번호는 같다) */
+export type HighlightVariant = 'ko' | 'original'
+
+/** 하이라이트 위치: 문단 번호(1부터)와 그 문단 글자 안의 [start, end) */
+export interface HighlightRange {
+  paragraph: number
+  variant: HighlightVariant
+  start: number
+  end: number
+}
+
+export interface HighlightDTO extends HighlightRange {
+  id: number
+  text: string
+  note: string
+  createdAt: string
+}
+
+/** 지난 7일 브리핑에 실린 기사의 후속 소식일 때, 그 지난 기사 */
+export interface FollowUpRef {
+  itemId: number
+  titleKo: string
+  digestDate: string | null
+}
+
 /** 기사 하나의 전체 정보 (기사 패널·본문 탭) */
 export interface ItemDetailDTO extends Omit<DigestEntryDTO, 'rank' | 'section'> {
   savedAt: string | null
@@ -78,7 +118,19 @@ export interface ItemDetailDTO extends Omit<DigestEntryDTO, 'rank' | 'section'> 
   paragraphs: string[]
   /** false면 본문 추출에 실패해 요약·초록만 있음 */
   fullText: boolean
+  /** 문단별 한국어 번역. paragraphs와 같은 순서·길이, 상한을 넘어 번역하지 않은 문단은 null */
+  paragraphsKo: (string | null)[] | null
+  translation: TranslationState
+  highlights: HighlightDTO[]
 }
+
+/**
+ * 본문 번역 상태
+ * - not_needed: 한국어 기사라 번역하지 않음
+ * - missing: 아직 번역하지 않음 (열면 번역을 요청한다)
+ * - done: 번역됨 (paragraphsKo에 null이 있으면 길어서 앞부분만 번역한 것)
+ */
+export type TranslationState = 'not_needed' | 'missing' | 'done'
 
 export interface DigestSummaryDTO {
   id: number
@@ -100,6 +152,35 @@ export interface SearchParams {
   query?: string
   tag?: string
   memoOnly?: boolean
+}
+
+/** 질문 범위: 기사 하나 또는 그날 브리핑 전체 */
+export type ChatScope = { kind: 'item'; itemId: number } | { kind: 'digest'; date: string }
+
+export interface ChatMessageDTO {
+  id: number
+  role: 'user' | 'assistant'
+  /** 답변에는 인용 표시가 들어 있다: 기사 채팅은 [¶n](문단 번호), 브리핑 채팅은 [#n](브리핑 순위) */
+  content: string
+  /** 답변이 실제로 인용한 번호 (있는 번호만 남김) */
+  citations: number[]
+  createdAt: string
+}
+
+/** 답변 스트리밍 중 Worker → Main → 화면으로 오는 알림 */
+export type ChatEvent =
+  | { type: 'delta'; requestId: string; text: string }
+  | { type: 'done'; requestId: string; message: ChatMessageDTO }
+  | { type: 'error'; requestId: string; message: string }
+
+export interface QuickAction {
+  label: string
+  prompt: string
+}
+
+export interface QuickActions {
+  item: QuickAction[]
+  digest: QuickAction[]
 }
 
 export interface DigestStats {
@@ -128,6 +209,7 @@ export type RunStage =
   | 'triage'
   | 'extract'
   | 'summarize'
+  | 'translate'
   | 'digest'
   | 'publish'
   | 'done'
@@ -154,4 +236,4 @@ export interface AppSettings {
   digestSize: number
 }
 
-export const DEFAULT_SETTINGS: AppSettings = { budgetUsd: 5, dailyCapUsd: 0.5, digestSize: 18 }
+export const DEFAULT_SETTINGS: AppSettings = { budgetUsd: 5, dailyCapUsd: 0.5, digestSize: 20 }

@@ -136,5 +136,45 @@ export const MIGRATIONS: string[] = [
     FROM items i
     LEFT JOIN contents c ON c.item_id = i.id
     LEFT JOIN notes n ON n.item_id = i.id;
+  `,
+  /* 5: 4단계 — AI 질문 대화. scope_key: 'item:<기사 id>' 또는 'digest:<날짜>' */ `
+  CREATE TABLE chats (
+    id INTEGER PRIMARY KEY,
+    scope_key TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE TABLE chat_messages (
+    id INTEGER PRIMARY KEY,
+    chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    citations TEXT NOT NULL DEFAULT '[]',
+    model TEXT,
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX chat_messages_chat ON chat_messages(chat_id, id);
+  `,
+  /* 6: 본문 문단별 한국어 번역, '에이전트·툴링' 분류를 '도구·라이브러리'와 '실전·응용'으로 나눔 */ `
+  ALTER TABLE contents ADD COLUMN paragraphs_ko TEXT;   -- JSON 배열, paragraphs와 같은 길이. 번역하지 않은 문단은 null
+  ALTER TABLE contents ADD COLUMN translated_at TEXT;
+  ALTER TABLE contents ADD COLUMN translate_model TEXT;
+  UPDATE items SET triage_category = 'tools' WHERE triage_category = 'agent_tooling';
+  UPDATE digest_entries SET section = 'tools' WHERE section = 'agent_tooling';
+  `,
+  /* 7: 하이라이트, 지난 브리핑 소식의 후속 보도 표시 */ `
+  CREATE TABLE highlights (
+    id INTEGER PRIMARY KEY,
+    item_id INTEGER NOT NULL REFERENCES items(id),
+    paragraph INTEGER NOT NULL,        -- ¶ 번호 (1부터)
+    variant TEXT NOT NULL,             -- ko: 번역문에 그음, original: 원문에 그음
+    start_offset INTEGER NOT NULL,     -- 문단 글자 안의 위치 [start, end)
+    end_offset INTEGER NOT NULL,
+    text TEXT NOT NULL,                -- 그은 글자 (본문이 바뀌어도 다시 찾을 수 있게 보관)
+    note TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL
+  );
+  CREATE INDEX highlights_item ON highlights(item_id, paragraph);
+  ALTER TABLE items ADD COLUMN follow_up_of INTEGER REFERENCES items(id);  -- 지난 7일 브리핑 기사의 후속 소식이면 그 기사
   `
 ]

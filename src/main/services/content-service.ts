@@ -1,6 +1,8 @@
 import type {
   DigestDTO,
   DigestSummaryDTO,
+  HighlightDTO,
+  HighlightRange,
   ItemDetailDTO,
   LibraryItemDTO,
   SearchParams,
@@ -32,6 +34,27 @@ export class ContentService {
 
   getItem(itemId: number): Promise<ItemDetailDTO | null> {
     return this.worker.call('getItem', { itemId })
+  }
+
+  translateItem(itemId: number): Promise<boolean> {
+    return this.worker.call('translateItem', { itemId })
+  }
+
+  /** 낮 동안 미리 수집 (LLM 없음) */
+  collectOnly(): Promise<{ collected: number; skipped: boolean }> {
+    return this.worker.call('collectOnly')
+  }
+
+  addHighlights(itemId: number, ranges: HighlightRange[]): Promise<HighlightDTO[]> {
+    return this.worker.call('addHighlights', { itemId, ranges })
+  }
+
+  updateHighlightNote(id: number, note: string): Promise<HighlightDTO[]> {
+    return this.worker.call('updateHighlightNote', { id, note })
+  }
+
+  removeHighlight(id: number): Promise<HighlightDTO[]> {
+    return this.worker.call('removeHighlight', { id })
   }
 
   markRead(itemId: number): Promise<void> {

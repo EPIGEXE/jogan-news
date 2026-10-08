@@ -40,8 +40,8 @@ function NavButton({ item, current, ruled, onNavigate }: { item: NavItem; curren
 /** 제호, 메뉴, 하단 정보 */
 export function NavRail({ items, footerItems, current, onNavigate, footer }: Props) {
   return (
-    <nav aria-label="주 메뉴" className="flex h-full flex-col gap-0.5 px-5 py-4 wide:min-h-screen wide:py-6">
-      <Masthead>AI 조간</Masthead>
+    <nav aria-label="주 메뉴" className="flex h-full flex-col gap-0.5 px-5 py-4 wide:min-h-full wide:py-6">
+      <Masthead />
       <div className="mt-3 flex flex-wrap gap-4 wide:flex-col wide:gap-0">
         {items.map((it) => (
           <NavButton key={it.route} item={it} current={it.route === current} ruled onNavigate={onNavigate} />

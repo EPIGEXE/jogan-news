@@ -58,6 +58,27 @@ export const ClusterJsonSchema = {
   }
 }
 
+export const RecentZod = z.object({
+  matches: z.array(z.object({ id: z.number(), previous_id: z.number(), follow_up: z.boolean() }))
+})
+
+export const RecentJsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['matches'],
+  properties: {
+    matches: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'previous_id', 'follow_up'],
+        properties: { id: { type: 'integer' }, previous_id: { type: 'integer' }, follow_up: { type: 'boolean' } }
+      }
+    }
+  }
+}
+
 export const SummaryZod = z.object({
   title_ko: z.string(),
   summary_ko: z.string(),
@@ -93,8 +114,8 @@ export const DigestJsonSchema = {
   properties: { headline: { type: 'string' }, overview: { type: 'string' } }
 }
 
-/** 요약에 넘길 본문 상한 (DESIGN.md 7.5절 ②: 약 1,500토큰) */
-export const MAX_SUMMARY_INPUT_CHARS = 6000
+/** 요약에 넘길 본문 상한 (DESIGN.md 7.5절 ②: 약 3,000토큰). 보통 기사는 전부 들어간다 */
+export const MAX_SUMMARY_INPUT_CHARS = 12000
 
 export function excerpt(paragraphs: string[], max = MAX_SUMMARY_INPUT_CHARS): string {
   let out = ''

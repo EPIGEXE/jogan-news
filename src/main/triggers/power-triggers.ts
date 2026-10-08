@@ -45,18 +45,23 @@ export class PowerTriggers {
     this.scheduleMorning()
   }
 
-  async fire(reason: TriggerReason): Promise<void> {
+  /**
+   * 생성 조건을 확인하고 맞으면 생성을 시작한다(끝날 때까지 기다리지 않음). 시작했으면 true.
+   * 오늘 브리핑이 이미 있으면 수동 요청도 건너뛴다 — 같은 날 다시 만들어도 후보가 거의 같아 결과가 비슷하기 때문.
+   */
+  async fire(reason: TriggerReason): Promise<boolean> {
     const now = new Date()
     let last: string | null
     try {
       last = await this.d.getLastDigestDate()
     } catch (err) {
       this.d.log(`trigger:${reason}`, `건너뜀 (마지막 생성일 확인 실패: ${(err as Error).message})`)
-      return
+      return false
     }
     const ok = shouldGenerate(reason, now, last, DEFAULT_SCHEDULE)
     this.d.log(`trigger:${reason}`, ok ? '생성 조건 충족' : `건너뜀 (오늘=${dateKey(now)}, 마지막 생성=${last ?? '없음'})`)
-    if (ok) await this.d.generate(reason)
+    if (ok) void this.d.generate(reason)
+    return ok
   }
 
   private scheduleMorning(): void {

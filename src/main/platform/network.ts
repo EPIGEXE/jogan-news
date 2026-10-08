@@ -8,6 +8,11 @@ const RETRY_INTERVAL_MS = 30_000
 const MAX_WAIT_MS = 5 * 60_000
 
 export class ElectronNetwork implements NetworkPort {
+  /** OS가 보는 연결 상태 (빠른 확인용, 실제로 닿는지는 확인하지 않음) */
+  isOnline(): boolean {
+    return net.isOnline()
+  }
+
   private async reachable(): Promise<boolean> {
     if (!net.isOnline()) return false
     try {

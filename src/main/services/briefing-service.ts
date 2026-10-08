@@ -44,13 +44,13 @@ export class BriefingService {
       log('generate-start', reason)
       const r = await worker.call('runPipeline', { reason })
       log('generate-done', `${r.entries}건 · $${r.costUsd.toFixed(4)}`)
-      status.set('new')
+      status.set('new', r.headline)
       events.digestUpdated()
       notifier.briefingReady(r.headline)
     } catch (err) {
       const message = (err as Error).message
       log('generate-failed', message)
-      status.set('error')
+      status.set('error', message)
       events.progress({ stage: 'error', message })
       notifier.briefingFailed(message)
     } finally {

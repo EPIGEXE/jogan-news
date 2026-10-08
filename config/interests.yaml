@@ -21,3 +21,23 @@ keywords:
   - { term: coding agent, weight: 0.4 }
   - { term: benchmark, weight: 0.2 }
   - { term: inference, weight: 0.2 }
+  # 개발 도구·실전 (개발자 관점 비중을 높임)
+  - { term: open source, weight: 0.3 }
+  - { term: open-source, weight: 0.3 }
+  - { term: 오픈소스, weight: 0.3 }
+  - { term: SDK, weight: 0.3 }
+  - { term: library, weight: 0.2 }
+  - { term: framework, weight: 0.2 }
+  - { term: vLLM, weight: 0.4 }
+  - { term: Ollama, weight: 0.4 }
+  - { term: llama.cpp, weight: 0.4 }
+  - { term: SGLang, weight: 0.4 }
+  - { term: LangGraph, weight: 0.3 }
+  - { term: LangChain, weight: 0.3 }
+  - { term: eval, weight: 0.3 }
+  - { term: prompt, weight: 0.2 }
+  - { term: embedding, weight: 0.2 }
+  - { term: quantiz, weight: 0.3 }
+  - { term: Show HN, weight: 0.3 }
+  - { term: 구현, weight: 0.2 }
+  - { term: 도입, weight: 0.2 }

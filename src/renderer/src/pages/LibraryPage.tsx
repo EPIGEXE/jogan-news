@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react'
 import type { LibraryItemDTO, TagCount } from '@shared/types'
 import { EmptyState } from '../components/app/Notice'
 import { ListHeader } from '../components/app/ListHeader'
+import { SinglePane } from '../components/layout/AppShell'
 import { SearchInput } from '../components/ui/SearchInput'
+import { SkeletonList } from '../components/ui/Skeleton'
 import { Tabs } from '../components/ui/Tabs'
 import { Tag } from '../components/ui/Tag'
 import { api } from '../lib/api'
@@ -45,7 +47,15 @@ export function LibraryPage() {
     if (p.tags) void api.listTags().then(setTags)
   }, [])
 
-  if (!items) return null
+  if (!items) {
+    return (
+      <SinglePane label="라이브러리">
+        <div className="max-w-190 px-7 py-6">
+          <SkeletonList />
+        </div>
+      </SinglePane>
+    )
+  }
 
   const filtered = query || filter === 'memo' || tag
   const header = (
@@ -75,6 +85,7 @@ export function LibraryPage() {
       header={header}
       items={items}
       onPatch={patch}
+      backLabel="라이브러리로"
       empty={
         total === 0 ? (
           <EmptyState title="저장한 기사가 없습니다">

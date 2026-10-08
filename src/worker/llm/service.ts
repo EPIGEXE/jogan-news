@@ -3,7 +3,7 @@ import pLimit from 'p-limit'
 import type { z } from 'zod'
 import { recordUsage } from '../db/repo'
 import type { Db } from '../db/db'
-import { completeJson, type ModelSpec } from './groq'
+import { completeJson, streamChat, type ChatTurn, type ModelSpec } from './groq'
 import { costUsd, type Pricing } from './pricing'
 
 // 한 번의 실행(run) 동안 LLM 호출을 관리한다: 사용량 기록, 실행당 토큰 상한, 모델별 동시 호출 수 제한.
@@ -63,5 +63,21 @@ export class LlmSession {
       })
       return r.data
     })
+  }
+
+  /** 스트리밍 답변. 사용량 기록과 토큰 상한은 json()과 같다 */
+  async stream(role: string, spec: ModelSpec, messages: ChatTurn[], onDelta: (text: string) => void): Promise<string> {
+    if (this.tokens > RUN_TOKEN_CAP) throw new RunTokenCapExceeded(this.tokens)
+    const r = await streamChat(this.groq, spec, messages, onDelta)
+    this.tokens += r.usage.input + r.usage.output
+    recordUsage(this.db, {
+      runId: this.runId,
+      role,
+      model: spec.model,
+      usage: r.usage,
+      latencyMs: r.latencyMs,
+      costUsd: costUsd(this.pricing, spec.model, r.usage) ?? 0
+    })
+    return r.text
   }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ApiKeyStatus, Route } from '@shared/ipc'
 import type { AppSettings, UsageSummary } from '@shared/types'
+import { ApiKeyField } from '../components/app/ApiKeyField'
 import { SinglePane } from '../components/layout/AppShell'
 import { PageBody, PageSection, PageTitle, Row } from '../components/layout/Page'
 import { Button } from '../components/ui/Button'
@@ -11,7 +12,6 @@ import { formatUsd } from '../lib/format'
 
 export function SettingsPage({ onNavigate, onUsageChanged }: { onNavigate(route: Route): void; onUsageChanged(): void }) {
   const [keyStatus, setKeyStatus] = useState<ApiKeyStatus | null>(null)
-  const [keyInput, setKeyInput] = useState('')
   const [settings, setSettings] = useState<AppSettings | null>(null)
   const [budget, setBudget] = useState('')
   const [dailyCap, setDailyCap] = useState('')
@@ -32,7 +32,6 @@ export function SettingsPage({ onNavigate, onUsageChanged }: { onNavigate(route:
 
   const saveKey = async (value: string | null) => {
     setKeyStatus(await api.setApiKey(value))
-    setKeyInput('')
     setMessage(value ? 'API 키를 저장했습니다.' : '저장된 API 키를 지웠습니다.')
   }
 
@@ -49,13 +48,6 @@ export function SettingsPage({ onNavigate, onUsageChanged }: { onNavigate(route:
     setMessage('예산을 저장했습니다.')
   }
 
-  const keyText =
-    keyStatus?.source === 'stored'
-      ? `저장됨 (끝자리 …${keyStatus.hint})`
-      : keyStatus?.source === 'env'
-        ? `개발용 .env에서 읽는 중 (끝자리 …${keyStatus.hint})`
-        : '없음'
-
   const budgetUnchanged = !settings || (budget === String(settings.budgetUsd) && dailyCap === String(settings.dailyCapUsd))
 
   return (
@@ -65,31 +57,7 @@ export function SettingsPage({ onNavigate, onUsageChanged }: { onNavigate(route:
         {message && <Help role="status">{message}</Help>}
 
         <PageSection title="Groq API 키">
-          <Help>입력한 키는 이 PC의 Windows 계정으로 암호화해서 저장합니다. 현재: {keyText}</Help>
-          <form
-            className="flex flex-wrap items-center gap-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (keyInput.trim()) void saveKey(keyInput)
-            }}
-          >
-            <label htmlFor="api-key" className="sr-only">
-              Groq API 키
-            </label>
-            <TextInput
-              id="api-key"
-              type="password"
-              autoComplete="off"
-              placeholder="gsk_…"
-              width="wide"
-              value={keyInput}
-              onChange={(e) => setKeyInput(e.target.value)}
-            />
-            <Button type="submit" variant="solid" disabled={!keyInput.trim()}>
-              저장
-            </Button>
-            {keyStatus?.source === 'stored' && <Button onClick={() => void saveKey(null)}>지우기</Button>}
-          </form>
+          <ApiKeyField status={keyStatus} onSave={saveKey} />
         </PageSection>
 
         <PageSection

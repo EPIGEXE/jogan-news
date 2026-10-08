@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyClusters, engagementScore, keywordScore, selectEntries, type Triaged } from './select'
+import { applyClusters, engagementScore, fillWithContent, keywordScore, selectEntries, type Triaged } from './select'
 
 const t = (id: number, over: Partial<Triaged> = {}): Triaged => ({
   id,
@@ -32,11 +32,28 @@ describe('selectEntries', () => {
     expect(seven).toMatchObject({ rank: 6, section: 'other' })
   })
 
-  it('분류별 상한을 지킨다 (논문 최대 5개)', () => {
+  it('분류별 상한을 지킨다 (논문 최대 3개)', () => {
     const papers = Array.from({ length: 8 }, (_, i) => t(i + 1, { category: 'research', importance: 5 }))
     const sel = selectEntries([...papers, t(100, { importance: 1 })], 20)
-    expect(sel.filter((s) => s.id <= 8)).toHaveLength(5)
+    expect(sel.filter((s) => s.id <= 8)).toHaveLength(3)
     expect(sel.find((s) => s.id === 100)).toBeDefined()
+  })
+
+  it('도구·실전 분류는 점수가 낮아도 최소 몫(3·2)을 채우고, 순위는 점수대로 매긴다', () => {
+    const big = Array.from({ length: 10 }, (_, i) => t(i + 1, { importance: 5 }))
+    const tools = Array.from({ length: 4 }, (_, i) => t(20 + i, { category: 'tools', importance: 2 }))
+    const applied = Array.from({ length: 3 }, (_, i) => t(30 + i, { category: 'applied', importance: 2 }))
+    const sel = selectEntries([...big, ...tools, ...applied], 8)
+    expect(sel).toHaveLength(8)
+    expect(sel.filter((s) => s.id >= 20 && s.id < 30)).toHaveLength(3)
+    expect(sel.filter((s) => s.id >= 30)).toHaveLength(2)
+    expect(sel.slice(0, 3).map((s) => s.id)).toEqual([1, 2, 3])
+  })
+
+  it('최소 몫은 관련도 0.6·중요도 2 이상인 후보로만 채운다', () => {
+    const big = Array.from({ length: 5 }, (_, i) => t(i + 1, { importance: 5 }))
+    const weak = [t(20, { category: 'tools', relevance: 0.5, importance: 3 }), t(21, { category: 'applied', relevance: 0.9, importance: 1 })]
+    expect(selectEntries([...big, ...weak], 5).map((s) => s.id)).toEqual([1, 2, 3, 4, 5])
   })
 
   it('크기를 넘지 않는다', () => {
@@ -79,5 +96,28 @@ describe('applyClusters', () => {
     const r = applyClusters([t(1), t(2), t(3)], [{ ids: [1, 99] }, { ids: [2, 3] }, { ids: [3, 1] }])
     expect(r.items.map((x) => x.id).sort()).toEqual([1, 2])
     expect(r.merges.size).toBe(1)
+  })
+})
+
+describe('fillWithContent', () => {
+  const ranked = (n: number) => Array.from({ length: n }, (_, i) => t(i + 1, { importance: 5 - i * 0.1 }))
+
+  it('본문이 부족한 항목은 빼고 다음 순위 후보로 채운다', async () => {
+    const thin = new Set([2, 4])
+    const { selected, excluded } = await fillWithContent(ranked(10), 5, 10, async (id) => !thin.has(id))
+    expect(selected.map((s) => s.id)).toEqual([1, 3, 5, 6, 7])
+    expect(selected.map((s) => s.rank)).toEqual([1, 2, 3, 4, 5])
+    expect(excluded.sort()).toEqual([2, 4])
+  })
+
+  it('항목마다 한 번만 확인하고, 확인 횟수 상한에 걸린 자리는 비워 둔다', async () => {
+    const calls: number[] = []
+    const { selected } = await fillWithContent(ranked(10), 4, 5, async (id) => {
+      calls.push(id)
+      return id > 3 // 1·2·3은 본문 없음
+    })
+    expect(new Set(calls).size).toBe(calls.length)
+    expect(calls).toHaveLength(5)
+    expect(selected.map((s) => s.id)).toEqual([4, 5])
   })
 })

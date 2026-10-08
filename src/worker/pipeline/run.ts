@@ -7,14 +7,17 @@ import type { RawItem } from '../collectors/types'
 import { modelFor, type AppConfig } from '../config'
 import { tx, type Db } from '../db/db'
 import * as repo from '../db/repo'
-import { extractArticle } from '../knowledge/extract'
+import { ensureContent } from '../knowledge/content'
+import { translateItem } from '../knowledge/translate'
 import { LlmSession } from '../llm/service'
-import { applyClusters, finalScore, ruleScore, selectEntries, type Triaged } from './select'
+import { applyClusters, fillWithContent, finalScore, ruleScore, selectEntries, type Triaged } from './select'
 import {
   ClusterJsonSchema,
   ClusterZod,
   DigestJsonSchema,
   DigestZod,
+  RecentJsonSchema,
+  RecentZod,
   SummaryJsonSchema,
   SummaryZod,
   summaryUserMessage,
@@ -29,6 +32,14 @@ const TRIAGE_BATCH = 10
 const FIRST_RUN_HOURS = 24
 const MAX_WINDOW_HOURS = 72
 const SAVE_MODE_DIGEST_SIZE = 15
+/** 이 기간 안에 실린 소식은 다시 싣지 않는다 (큰 후속 소식은 '후속'으로 싣는다) */
+const RECENT_DAYS = 7
+/** 이보다 본문이 짧으면(제목·한 줄 소개뿐) 브리핑에 싣지 않는다 */
+const MIN_BODY_CHARS = 300
+/** 본문 추출을 시도하는 후보 수 상한 = 브리핑 크기 × 이 값 */
+const EXTRACT_ATTEMPT_FACTOR = 2
+
+const bodyChars = (paragraphs: string[]) => paragraphs.reduce((n, p) => n + p.length, 0)
 
 export interface PipelineDeps {
   db: Db
@@ -56,20 +67,39 @@ function collectionSince(db: Db, now: Date): Date {
   return t < floor ? floor : t
 }
 
-function isExtractable(url: string, kind: string): boolean {
-  if (kind === 'paper') return false
-  try {
-    return new URL(url).hostname !== 'news.ycombinator.com'
-  } catch {
-    return false
-  }
-}
+/**
+ * ① 수집 · ② 저장·중복 제거. 낮 동안 미리 수집(collectOnly)도 이 함수를 쓴다.
+ * 소스 하나가 실패해도 나머지는 계속한다. 새로 쌓인 글 수와 실패한 소스를 돌려준다.
+ */
+export async function collectAndStore(
+  deps: Pick<PipelineDeps, 'db' | 'config' | 'log'> & { onProgress?: PipelineDeps['onProgress'] },
+  since: Date
+): Promise<{ collected: number; failedSources: string[] }> {
+  const { db, config, log } = deps
+  const onProgress = deps.onProgress ?? (() => {})
+  const failedSources: string[] = []
+  let done = 0
+  onProgress({ stage: 'collect', message: '소스에서 새 글을 가져오는 중', current: 0, total: config.sources.length })
+  const batches = await Promise.all(
+    config.sources.map(async (s): Promise<RawItem[]> => {
+      try {
+        return await collectSource(s, since, config.interests)
+      } catch (err) {
+        failedSources.push(`${s.name} (${(err as Error).message})`)
+        log('warn', `수집 실패: ${s.name}: ${(err as Error).message}`)
+        return []
+      } finally {
+        onProgress({ stage: 'collect', message: '소스에서 새 글을 가져오는 중', current: ++done, total: config.sources.length })
+      }
+    })
+  )
 
-function splitParagraphs(text: string): string[] {
-  return text
-    .split(/\n{2,}/)
-    .map((p) => p.trim())
-    .filter(Boolean)
+  onProgress({ stage: 'dedup', message: '중복을 합치는 중' })
+  let collected = 0
+  tx(db, () => {
+    for (const raw of batches.flat()) if (repo.upsertRawItem(db, raw).isNew) collected++
+  })
+  return { collected, failedSources }
 }
 
 export async function runPipeline(deps: PipelineDeps, reason: TriggerReason): Promise<RunResult> {
@@ -95,30 +125,8 @@ export async function runPipeline(deps: PipelineDeps, reason: TriggerReason): Pr
   const llm = new LlmSession(groq, db, config.pricing, runId)
 
   try {
-    // ── ① 수집 ──
-    const failedSources: string[] = []
-    let done = 0
-    onProgress({ stage: 'collect', message: '소스에서 새 글을 가져오는 중', current: 0, total: config.sources.length })
-    const batches = await Promise.all(
-      config.sources.map(async (s): Promise<RawItem[]> => {
-        try {
-          return await collectSource(s, since, config.interests)
-        } catch (err) {
-          failedSources.push(`${s.name} (${(err as Error).message})`)
-          log('warn', `수집 실패: ${s.name}: ${(err as Error).message}`)
-          return []
-        } finally {
-          onProgress({ stage: 'collect', message: '소스에서 새 글을 가져오는 중', current: ++done, total: config.sources.length })
-        }
-      })
-    )
-
-    // ── ② 저장·중복 제거 ──
-    onProgress({ stage: 'dedup', message: '중복을 합치는 중' })
-    let collected = 0
-    tx(db, () => {
-      for (const raw of batches.flat()) if (repo.upsertRawItem(db, raw).isNew) collected++
-    })
+    // ── ① 수집 · ② 저장·중복 제거 ──
+    const { collected, failedSources } = await collectAndStore(deps, since)
 
     // ── ③ 규칙 점수로 1차 거르기 ──
     const weightOf = new Map(config.sources.map((s) => [s.id, s.weight]))
@@ -236,31 +244,62 @@ export async function runPipeline(deps: PipelineDeps, reason: TriggerReason): Pr
       const r = rowById.get(id)!
       return { source: r.source_name, title: r.title, snippet: r.snippet.slice(0, 160) }
     })
-    const clustered = [...mergedPool, ...triaged.filter((t) => !poolIds.has(t.id))]
+
+    // ── 지난 7일 중복 확인: 이미 보낸 소식은 빼고, 중요한 새 전개가 있는 후속 소식은 표시해서 싣는다 ──
+    const recent = repo.recentPublished(db, today, RECENT_DAYS)
+    const dropped = new Set<number>()
+    if (recent.length > 0 && mergedPool.length > 0) {
+      try {
+        const user = [
+          '지난 브리핑:',
+          ...recent.map((r) => JSON.stringify({ id: r.id, date: r.date, title: r.title })),
+          '',
+          '오늘 후보:',
+          ...mergedPool.map((t) => {
+            const r = rowById.get(t.id)!
+            return JSON.stringify({ id: r.id, source: r.source_name, title: r.title, snippet: r.snippet.slice(0, 160) })
+          })
+        ].join('\n')
+        const { matches } = await llm.json('recent', modelFor(config.models, 'summary', saveMode), { system: config.prompts.recent, user }, {
+          name: 'recent_matches',
+          jsonSchema: RecentJsonSchema,
+          zod: RecentZod
+        })
+        const recentIds = new Set(recent.map((r) => r.id))
+        let followUps = 0
+        for (const m of matches) {
+          if (!poolIds.has(m.id) || !recentIds.has(m.previous_id) || dropped.has(m.id)) continue
+          if (m.follow_up) {
+            repo.markFollowUp(db, m.id, m.previous_id)
+            followUps++
+          } else {
+            // 지난 기사에 출처로 붙이고 후보에서 뺀다
+            repo.mergeInto(db, m.previous_id, [m.id])
+            dropped.add(m.id)
+          }
+        }
+        if (matches.length) log('info', `지난 ${RECENT_DAYS}일 중복 ${dropped.size}건 제외, 후속 소식 ${followUps}건`)
+      } catch (err) {
+        log('warn', `지난 브리핑 중복 확인 실패, 확인 없이 진행: ${(err as Error).message}`)
+      }
+    }
+    const clustered = [...mergedPool.filter((t) => !dropped.has(t.id)), ...triaged.filter((t) => !poolIds.has(t.id))]
     let selected = selectEntries(clustered, size)
     if (selected.length === 0) throw new Error('선정할 기사가 없습니다. 수집된 글이 없거나 모두 관련도가 낮습니다.')
 
-    // ── ⑥ 본문 추출 ──
-    let extracted = 0
-    onProgress({ stage: 'extract', message: '본문을 가져오는 중', current: 0, total: selected.length })
-    await Promise.all(
-      selected.map(async (sel) => {
-        const row = rowById.get(sel.id)!
-        if (!repo.getContent(db, row.id)) {
-          let paragraphs: string[] | null = null
-          if (isExtractable(row.url, row.kind)) {
-            try {
-              paragraphs = (await extractArticle(row.url))?.paragraphs ?? null
-            } catch (err) {
-              log('info', `본문 추출 실패(${row.source_name}): ${(err as Error).message}`)
-            }
-          }
-          if (paragraphs) repo.saveContent(db, row.id, paragraphs, true)
-          else repo.saveContent(db, row.id, splitParagraphs(row.snippet || row.title), false)
-        }
-        onProgress({ stage: 'extract', message: '본문을 가져오는 중', current: ++extracted, total: selected.length })
-      })
-    )
+    // ── ⑥ 본문 추출: 본문을 못 가져온(제목뿐인) 기사는 빼고 다음 순위 후보로 채운다 ──
+    // 제목만으로 요약하면 내용을 지어내게 되므로 싣지 않는다. 추출 시도는 브리핑 크기의 2배까지만 한다.
+    let ready = 0
+    onProgress({ stage: 'extract', message: '본문을 가져오는 중', current: 0, total: size })
+    const filled = await fillWithContent(clustered, size, size * EXTRACT_ATTEMPT_FACTOR, async (id) => {
+      const content = await ensureContent(db, rowById.get(id)!, log)
+      const ok = bodyChars(content.paragraphs) >= MIN_BODY_CHARS
+      if (ok) onProgress({ stage: 'extract', message: '본문을 가져오는 중', current: Math.min(++ready, size), total: size })
+      return ok
+    })
+    selected = filled.selected
+    if (filled.excluded.length) log('info', `본문을 가져오지 못한 ${filled.excluded.length}건을 빼고 다음 후보로 채움`)
+    if (selected.length === 0) throw new Error('본문을 가져올 수 있는 기사가 없습니다.')
 
     // ── ⑦ 한국어 요약 (이미 요약한 항목은 건너뜀) ──
     const summarySpec = modelFor(config.models, 'summary', saveMode)
@@ -315,7 +354,23 @@ export async function runPipeline(deps: PipelineDeps, reason: TriggerReason): Pr
     )
     if (finalItems.length < selected.length) selected = selectEntries(finalItems, finalItems.length)
 
-    // ── ⑧ 머리글 ──
+    // ── ⑧ 본문 번역 (영어 기사만, 절약 모드에서는 읽을 때 번역) ──
+    if (!saveMode) {
+      let translated = 0
+      onProgress({ stage: 'translate', message: '본문을 한국어로 옮기는 중', current: 0, total: selected.length })
+      await Promise.all(
+        selected.map(async (sel) => {
+          try {
+            await translateItem({ db, config, llm, saveMode, log }, sel.id)
+          } catch (err) {
+            log('warn', `번역 실패(${rowById.get(sel.id)!.title.slice(0, 40)}): ${(err as Error).message}`)
+          }
+          onProgress({ stage: 'translate', message: '본문을 한국어로 옮기는 중', current: ++translated, total: selected.length })
+        })
+      )
+    }
+
+    // ── ⑨ 머리글 ──
     onProgress({ stage: 'digest', message: '오늘의 한 줄을 쓰는 중' })
     const top = rowById.get(selected[0]!.id)!
     let headline = top.title_ko ?? top.title
@@ -338,7 +393,7 @@ export async function runPipeline(deps: PipelineDeps, reason: TriggerReason): Pr
       log('warn', `머리글 생성 실패, 1위 기사 제목으로 대신함: ${(err as Error).message}`)
     }
 
-    // ── ⑨ 게시 ──
+    // ── ⑩ 게시 ──
     onProgress({ stage: 'publish', message: '브리핑을 저장하는 중' })
     const stats: DigestStats = {
       sources: config.sources.length,

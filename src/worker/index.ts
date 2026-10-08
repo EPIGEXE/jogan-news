@@ -34,6 +34,7 @@ port.on('message', (e) => {
           apiKey: msg.apiKey,
           onProgress: (progress) => send({ type: 'progress', progress }),
           onItemUpdated: (itemId) => send({ type: 'item-updated', itemId }),
+          onChatEvent: (event) => send({ type: 'chat', event }),
           log
         })
         send({ type: 'ready' })

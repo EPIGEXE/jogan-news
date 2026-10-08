@@ -51,15 +51,15 @@ export interface Triaged {
 
 /** LLM 선별 결과를 반영한 최종 점수 */
 export function finalScore(t: Triaged): number {
-  return (
-    clamp01(t.relevance) * t.importance +
-    0.5 * engagementScore(t.engagement) +
-    0.3 * Math.min(3, t.otherSources) +
-    0.1 * t.ruleScore
-  )
+  return clamp01(t.relevance) * t.importance + 0.5 * engagementScore(t.engagement) + 0.3 * Math.min(3, t.otherSources) + 0.1 * t.ruleScore
 }
 
-const CATEGORY_CAP: Partial<Record<Category, number>> = { research: 5, community: 4, industry: 4, other: 3 }
+const CATEGORY_CAP: Partial<Record<Category, number>> = { research: 3, community: 4, industry: 3, other: 3 }
+/** 충분히 관련 있는 후보가 있으면 이만큼은 꼭 싣는다 (개발 도구·실전 소식이 큰 뉴스에 밀려 빠지지 않게) */
+const CATEGORY_QUOTA: Partial<Record<Category, number>> = { tools: 3, applied: 2 }
+/** 최소 몫으로 넣을 수 있는 기준. 일반 기준보다 높여서 자리 채우기용 약한 글이 들어오지 않게 한다 */
+const QUOTA_MIN_RELEVANCE = 0.6
+const QUOTA_MIN_IMPORTANCE = 2
 const MIN_RELEVANCE = 0.4
 const TOP_COUNT = 5
 
@@ -72,6 +72,7 @@ export interface Selected {
 /**
  * 최종 점수 순으로 브리핑 항목을 고른다.
  * - 관련도가 낮은 항목은 빼되, 중요도 5짜리는 '그 외 주요 소식'으로 남긴다.
+ * - 도구·실전 분류는 최소 몫을 먼저 채우고, 나머지 자리는 점수 순으로 채운다.
  * - 분류별 상한을 지킨다. 상위 5개는 'top' 섹션, 나머지는 자기 분류 섹션에 들어간다.
  */
 export function selectEntries(items: Triaged[], size: number): Selected[] {
@@ -84,17 +85,60 @@ export function selectEntries(items: Triaged[], size: number): Selected[] {
     .filter((t): t is Triaged => t !== null)
     .sort((a, b) => finalScore(b) - finalScore(a))
 
+  const picked = new Set<Triaged>()
+  for (const [category, quota] of Object.entries(CATEGORY_QUOTA) as [Category, number][]) {
+    const strong = eligible.filter(
+      (x) => x.category === category && x.relevance >= QUOTA_MIN_RELEVANCE && x.importance >= QUOTA_MIN_IMPORTANCE
+    )
+    for (const t of strong.slice(0, quota)) {
+      if (picked.size < size) picked.add(t)
+    }
+  }
   const counts = new Map<Category, number>()
-  const picked: Triaged[] = []
+  for (const t of picked) counts.set(t.category, (counts.get(t.category) ?? 0) + 1)
   for (const t of eligible) {
-    if (picked.length >= size) break
+    if (picked.size >= size) break
+    if (picked.has(t)) continue
     const cap = CATEGORY_CAP[t.category]
     const n = counts.get(t.category) ?? 0
     if (cap !== undefined && n >= cap) continue
     counts.set(t.category, n + 1)
-    picked.push(t)
+    picked.add(t)
   }
-  return picked.map((t, i) => ({ id: t.id, rank: i + 1, section: i < TOP_COUNT ? 'top' : t.category }))
+  return [...picked]
+    .sort((a, b) => finalScore(b) - finalScore(a))
+    .map((t, i) => ({ id: t.id, rank: i + 1, section: i < TOP_COUNT ? 'top' : t.category }))
+}
+
+/**
+ * 순위대로 고른 항목의 본문을 확인하며, 본문이 부족한 항목은 빼고 다음 순위 후보로 채운다.
+ * hasBody는 항목마다 한 번만 부르고(결과를 기억), 전체 확인 횟수는 maxChecks까지만 한다.
+ * 상한에 걸려 확인하지 못한 자리는 비워 둔다. 분류별 최소 몫·상한은 selectEntries가 다시 지킨다.
+ */
+export async function fillWithContent(
+  items: Triaged[],
+  size: number,
+  maxChecks: number,
+  hasBody: (id: number) => Promise<boolean>
+): Promise<{ selected: Selected[]; excluded: number[] }> {
+  const checked = new Map<number, boolean>()
+  let selected = selectEntries(items, size)
+  for (;;) {
+    const pending = selected.filter((s) => !checked.has(s.id)).slice(0, Math.max(0, maxChecks - checked.size))
+    if (pending.length === 0) break
+    const results = await Promise.all(pending.map(async (s) => [s.id, await hasBody(s.id)] as const))
+    for (const [id, ok] of results) checked.set(id, ok)
+    // 빠진 항목이 있으면 그 자리를 다음 순위 후보로 채워 다시 고른다
+    if (results.some(([, ok]) => !ok)) selected = selectEntries(items.filter((t) => checked.get(t.id) !== false), size)
+  }
+  const okIds = new Set(selected.filter((s) => checked.get(s.id) === true).map((s) => s.id))
+  return {
+    selected: selectEntries(
+      items.filter((t) => okIds.has(t.id)),
+      size
+    ),
+    excluded: [...checked].filter(([, ok]) => !ok).map(([id]) => id)
+  }
 }
 
 export interface ClusterResult {
@@ -127,7 +171,10 @@ export function applyClusters(items: Triaged[], groups: ClusterGroup[]): Cluster
     const rank = (x: Triaged) => x.importance * 100 + finalScore(x)
     const rep = members.find((m) => m.id === g.primary) ?? members.reduce((a, b) => (rank(b) > rank(a) ? b : a))
     const rest = members.filter((m) => m.id !== rep.id)
-    merges.set(rep.id, rest.map((m) => m.id))
+    merges.set(
+      rep.id,
+      rest.map((m) => m.id)
+    )
     replaced.set(rep.id, {
       ...rep,
       otherSources: rep.otherSources + rest.reduce((n, m) => n + 1 + m.otherSources, 0),

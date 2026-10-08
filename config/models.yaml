@@ -7,11 +7,20 @@ triage:
 summary:
   model: openai/gpt-oss-120b
   reasoningEffort: low
-  maxCompletionTokens: 1000
+  maxCompletionTokens: 1500
 digest:
   model: openai/gpt-oss-120b
   reasoningEffort: medium
   maxCompletionTokens: 4000
+chat:
+  model: openai/gpt-oss-120b
+  reasoningEffort: low
+  maxCompletionTokens: 2000
+# 본문 문단별 번역. 한 번에 원문 약 5,000자씩 보내므로 번역문이 다 들어갈 만큼 출력 상한을 둔다
+translate:
+  model: openai/gpt-oss-120b
+  reasoningEffort: low
+  maxCompletionTokens: 8000
 saveMode:
   model: openai/gpt-oss-20b
   reasoningEffort: low

@@ -26,9 +26,9 @@ export async function fetchJson(url: string): Promise<unknown> {
   return res.json()
 }
 
-export async function fetchText(url: string): Promise<string> {
+export async function fetchText(url: string, accept = '*/*'): Promise<string> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': USER_AGENT },
+    headers: { 'User-Agent': USER_AGENT, Accept: accept },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS)
   })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)

@@ -1,5 +1,8 @@
 import Groq, { BadRequestError } from 'groq-sdk'
-import type { ChatCompletionCreateParamsNonStreaming } from 'groq-sdk/resources/chat/completions'
+import type {
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionCreateParamsStreaming
+} from 'groq-sdk/resources/chat/completions'
 import type { z } from 'zod'
 import type { TokenUsage } from './pricing'
 
@@ -71,6 +74,52 @@ export async function completeJson<T>(
   return {
     data,
     latencyMs,
+    usage: {
+      input: u?.prompt_tokens ?? 0,
+      cachedInput: u?.prompt_tokens_details?.cached_tokens ?? 0,
+      output: u?.completion_tokens ?? 0,
+      reasoning: u?.completion_tokens_details?.reasoning_tokens ?? 0
+    }
+  }
+}
+
+export interface ChatTurn {
+  role: 'system' | 'user' | 'assistant'
+  content: string
+}
+
+/** 스트리밍으로 답을 받는다. 글자가 올 때마다 onDelta를 부르고, 끝나면 전체 답과 사용량을 돌려준다. */
+export async function streamChat(
+  groq: Groq,
+  spec: ModelSpec,
+  messages: ChatTurn[],
+  onDelta: (text: string) => void
+): Promise<{ text: string; usage: TokenUsage; latencyMs: number }> {
+  const started = Date.now()
+  // 추론 옵션은 비스트리밍 타입으로 만들어지므로, 스트리밍 요청 타입으로 합쳐서 넘긴다
+  const params: ChatCompletionCreateParamsStreaming = {
+    ...(reasoningParams(spec) as Omit<ChatCompletionCreateParamsStreaming, 'model' | 'messages' | 'stream'>),
+    model: spec.model,
+    messages,
+    max_completion_tokens: spec.maxCompletionTokens,
+    stream: true
+  }
+  const stream = await groq.chat.completions.create(params)
+  let text = ''
+  let u: Groq.CompletionUsage | null | undefined
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta.content
+    if (delta) {
+      text += delta
+      onDelta(delta)
+    }
+    // 사용량은 마지막 조각의 x_groq.usage에 실려 온다
+    u = chunk.x_groq?.usage ?? u
+    if (chunk.x_groq?.error) throw new Error(chunk.x_groq.error)
+  }
+  return {
+    text,
+    latencyMs: Date.now() - started,
     usage: {
       input: u?.prompt_tokens ?? 0,
       cachedInput: u?.prompt_tokens_details?.cached_tokens ?? 0,

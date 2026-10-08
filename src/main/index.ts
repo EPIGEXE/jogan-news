@@ -20,14 +20,19 @@ import { TrayController } from './platform/tray/tray'
 import { MainWindow } from './platform/window'
 import { WorkerClient } from './platform/worker-client'
 import { BriefingService } from './services/briefing-service'
+import { ChatService } from './services/chat-service'
 import { ContentService } from './services/content-service'
 import { DiagnosticsService } from './services/diagnostics-service'
 import { SettingsService } from './services/settings-service'
+import { CollectTimer } from './triggers/collect-timer'
 import { PowerTriggers } from './triggers/power-triggers'
 
 const APP_ID = 'com.ainews.desktop'
 const SHORTCUT = 'Control+Alt+N'
 
+// 표시 이름은 Jogan이지만 데이터 폴더는 예전 이름(%APPDATA%\AINews)을 그대로 쓴다.
+// 이름을 바꿨다고 저장한 기사·메모·설정이 새 폴더로 갈라지지 않게 한다.
+app.setPath('userData', join(app.getPath('appData'), 'AINews'))
 // 개발용: 별도 데이터 폴더로 실행 (스크린샷 확인 등). 설치판에서는 무시한다.
 if (!app.isPackaged && process.env['AINEWS_USER_DATA']) app.setPath('userData', process.env['AINEWS_USER_DATA'])
 
@@ -56,12 +61,14 @@ function main(): void {
   const openWindow = (route?: Route) => window.show(route)
   const keys = new SafeStorageKeyStore()
   const autostart = new LoginItemAutostart(log)
+  autostart.migrateRenamedExe()
   const worker = new WorkerClient({
     dbPath: join(app.getPath('userData'), 'ainews.db'),
     configDir: configDir(),
     getApiKey: () => keys.get(),
     onProgress: (p) => events.progress(p),
     onItemUpdated: (itemId) => events.itemUpdated(itemId),
+    onChatEvent: (event) => events.chat(event),
     log
   })
 
@@ -72,7 +79,8 @@ function main(): void {
   const tray = new TrayController(
     {
       openToday: () => openWindow('today'),
-      refresh: () => void triggers?.fire('manual'),
+      // 오늘 브리핑이 이미 있으면 만들지 않고 창을 연다
+      refresh: () => void triggers?.fire('manual').then((started) => !started && openWindow('today')),
       testNotification: () => notifications?.test(),
       quit: () => app.quit()
     },
@@ -83,8 +91,10 @@ function main(): void {
   // ── 서비스 ──
   const content = new ContentService(worker)
   const settings = new SettingsService({ keys, autostart, worker })
+  const chat = new ChatService(worker)
+  const network = new ElectronNetwork()
   const briefing = new BriefingService({
-    network: new ElectronNetwork(),
+    network,
     status: tray,
     notifier: notifications,
     worker,
@@ -98,6 +108,11 @@ function main(): void {
     generate: (reason: TriggerReason) => briefing.generate(reason),
     log
   })
+  const collectTimer = new CollectTimer({
+    collect: () => content.collectOnly(),
+    isOnline: () => network.isOnline(),
+    log
+  })
   const diagnostics = new DiagnosticsService({
     listEvents: () => diag.list(),
     testNotification: () => notifications?.test(),
@@ -109,10 +124,12 @@ function main(): void {
   registerIpc({
     content,
     briefing,
+    chat,
     settings,
     diagnostics,
-    runNow: () => void triggers?.fire('manual'),
-    openExternal: openExternalUrl
+    runNow: () => triggers?.fire('manual') ?? Promise.resolve(false),
+    openExternal: openExternalUrl,
+    window
   })
 
   // ── 시작 ──
@@ -123,15 +140,22 @@ function main(): void {
   app.on('second-instance', () => openWindow())
 
   if (!app.isPackaged && process.env['AINEWS_SCREENSHOT']) {
-    captureAndQuit(window, process.env['AINEWS_SCREENSHOT'], process.env['AINEWS_ROUTE'] as Route | undefined)
+    captureAndQuit(
+      window,
+      process.env['AINEWS_SCREENSHOT'],
+      process.env['AINEWS_ROUTE'] as Route | undefined,
+      process.env['AINEWS_KEYS']?.split(',').filter(Boolean)
+    )
   }
 
   log('ready', hidden ? '숨김 모드로 시작 (자동 시작)' : '일반 시작')
   triggers.start()
+  collectTimer.start()
   events.digestUpdated()
 
   stop = () => {
     window.markQuitting()
+    collectTimer.stop()
     worker.stop()
   }
 }

@@ -1,12 +1,19 @@
 import Parser from 'rss-parser'
 import { z } from 'zod'
 import type { Interest, SourceConfig } from '../config'
-import { cleanText } from '../pipeline/normalize'
-import { fetchJson, fetchText, FETCH_TIMEOUT_MS, isAfter, USER_AGENT, type RawItem } from './types'
+import { cleanLines, cleanText } from '../pipeline/normalize'
+import { fetchJson, fetchText, isAfter, type RawItem } from './types'
 
 // 소스 종류별 수집기. 실패는 호출한 쪽(collect 단계)에서 소스 단위로 잡는다.
 
-const rss = new Parser({ timeout: FETCH_TIMEOUT_MS, headers: { 'User-Agent': USER_AGENT } })
+const rss = new Parser()
+
+// 피드는 fetch로 받아서 넘긴다. rss-parser가 직접 받으면 gzip 응답을 풀지 못해 실패하는 피드가 있다(DeepMind).
+// Accept가 없으면 406을 주는 피드도 있다(Naver D2).
+const FEED_ACCEPT = 'application/rss+xml, application/atom+xml, application/xml, text/xml, */*'
+async function parseFeed(url: string) {
+  return rss.parseString(await fetchText(url, FEED_ACCEPT))
+}
 
 function matchesInterest(text: string, interests: Interest[]): boolean {
   const lower = text.toLowerCase()
@@ -18,8 +25,9 @@ async function collectRss(
   since: Date,
   interests: Interest[]
 ): Promise<RawItem[]> {
-  const feed = await rss.parseURL(s.url)
+  const feed = await parseFeed(s.url)
   return feed.items
+    .slice(0, s.maxItems)
     .filter((it) => it.link && it.title && isAfter(it.isoDate, since))
     .filter((it) => !s.keywordFilter || matchesInterest(`${it.title} ${it.contentSnippet ?? ''}`, interests))
     .map((it) => ({
@@ -113,7 +121,7 @@ async function collectHackerNews(s: Extract<SourceConfig, { type: 'hackernews' }
     const url =
       'https://hn.algolia.com/api/v1/search?' +
       new URLSearchParams({
-        tags: 'story',
+        tags: s.tags,
         query: q,
         numericFilters: `created_at_i>${sinceSec},points>${s.minPoints}`,
         hitsPerPage: '50'
@@ -139,6 +147,55 @@ async function collectHackerNews(s: Extract<SourceConfig, { type: 'hackernews' }
   return [...seen.values()]
 }
 
+// 프리릴리스(rc·alpha·beta·dev·nightly, 파이썬식 1.2.0a1)는 받지 않는다
+const PRERELEASE = /(rc|alpha|beta|dev|preview|nightly|pre)[.-]?\d*\b|\d(a|b)\d/i
+const VERSION = /(\d+)\.(\d+)(?:\.(\d+))?/
+
+/** 메이저·마이너 버전만 소식으로 친다 (x.y 또는 x.y.0). 패치·프리릴리스는 null */
+export function releaseVersion(tag: string): string | null {
+  if (PRERELEASE.test(tag)) return null
+  const m = VERSION.exec(tag)
+  if (!m) return null
+  if (m[3] !== undefined && Number(m[3]) > 0) return null
+  return m[0]
+}
+
+async function collectGithubReleases(s: Extract<SourceConfig, { type: 'github_releases' }>, since: Date): Promise<RawItem[]> {
+  // 저장소 하나가 실패해도(이름 변경·삭제) 나머지는 받는다. 전부 실패하면 소스 실패로 본다
+  const settled = await Promise.allSettled(
+    s.repos.map(async (r) => {
+      const feed = await parseFeed(`https://github.com/${r.repo}/releases.atom`)
+      return feed.items.flatMap((it): RawItem[] => {
+        if (!it.link || !isAfter(it.isoDate, since)) return []
+        const tag = decodeURIComponent(it.link.split('/releases/tag/')[1] ?? it.title ?? '')
+        if (r.match && !tag.includes(r.match)) return []
+        const version = releaseVersion(tag)
+        if (!version) return []
+        const title = (it.title ?? '').trim()
+        return [
+          {
+            sourceId: s.id,
+            sourceName: s.name,
+            kind: s.kind,
+            // 릴리스 제목이 버전뿐이면 "vLLM 0.31.0"처럼 프로젝트 이름을 붙인다
+            title: cleanText(title.toLowerCase().includes(r.name.toLowerCase()) ? title : `${r.name} ${title || version}`, 300),
+            url: it.link,
+            publishedAt: it.isoDate ?? null,
+            snippet: cleanLines(it.contentSnippet ?? it.content, 4000),
+            engagement: 0,
+            engagementLabel: null,
+            lang: 'en'
+          }
+        ]
+      })
+    })
+  )
+  const ok = settled.flatMap((x) => (x.status === 'fulfilled' ? [x.value] : []))
+  const failed = settled.find((x) => x.status === 'rejected')
+  if (ok.length === 0 && failed) throw failed.reason
+  return ok.flat()
+}
+
 export function collectSource(s: SourceConfig, since: Date, interests: Interest[]): Promise<RawItem[]> {
   switch (s.type) {
     case 'rss':
@@ -149,5 +206,7 @@ export function collectSource(s: SourceConfig, since: Date, interests: Interest[
       return collectArxiv(s, since)
     case 'hackernews':
       return collectHackerNews(s, since)
+    case 'github_releases':
+      return collectGithubReleases(s, since)
   }
 }

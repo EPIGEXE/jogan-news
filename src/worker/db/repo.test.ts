@@ -133,4 +133,80 @@ describe('repo', () => {
     repo.saveContent(db, id, ['첫 문단', '둘째 문단'], true)
     expect(repo.getItemDetail(db, id)).toMatchObject({ paragraphs: ['첫 문단', '둘째 문단'], fullText: true })
   })
+
+  it('하이라이트: 글자는 본문에서 잘라 저장하고, 겹치면 합치며, 처음 그으면 기사를 저장한다', () => {
+    const db = openDb(':memory:')
+    const { id } = repo.upsertRawItem(db, raw())
+    repo.saveContent(db, id, ['Agents need reliable tool calls.', 'Second paragraph here.'], true)
+    repo.saveTranslation(db, id, ['에이전트에는 믿을 만한 도구 호출이 필요하다.', null], 'm')
+
+    const first = repo.addHighlights(db, id, [{ paragraph: 1, variant: 'original', start: 0, end: 6 }])
+    expect(first.newlySaved).toBe(true)
+    expect(first.highlights).toMatchObject([{ paragraph: 1, variant: 'original', text: 'Agents' }])
+    expect(repo.getItemDetail(db, id)?.savedAt).not.toBeNull()
+
+    // 겹치는 구간은 하나로 합치고, 다른 판(번역문)은 따로 둔다. 없는 문단(번역 없는 ¶2의 ko)은 무시
+    const merged = repo.addHighlights(db, id, [
+      { paragraph: 1, variant: 'original', start: 4, end: 21 },
+      { paragraph: 1, variant: 'ko', start: 0, end: 5 },
+      { paragraph: 2, variant: 'ko', start: 0, end: 3 }
+    ])
+    expect(merged.newlySaved).toBe(false)
+    expect(merged.highlights.map((h) => [h.variant, h.text]).sort()).toEqual([
+      ['ko', '에이전트에'],
+      ['original', 'Agents need reliable']
+    ])
+
+    const hl = merged.highlights.find((h) => h.variant === 'original')!
+    repo.updateHighlightNote(db, hl.id, '도구 호출 안정성')
+    expect(repo.searchItems(db, { scope: 'saved', query: '안정성' }).map((r) => r.itemId)).toEqual([id])
+    expect(repo.removeHighlight(db, hl.id)).toHaveLength(1)
+  })
+
+  it('지난 7일 브리핑 기사: 오늘 브리핑과 7일보다 오래된 브리핑은 빼고, 후속 소식 표시를 화면에 내보낸다', () => {
+    const db = openDb(':memory:')
+    const old = repo.upsertRawItem(db, raw({ url: 'https://a.com/1', title: 'Old news' }))
+    const week = repo.upsertRawItem(db, raw({ url: 'https://a.com/2', title: 'This week news' }))
+    const today = repo.upsertRawItem(db, raw({ url: 'https://a.com/3', title: 'Today news' }))
+    const entry = (itemId: number) => [{ itemId, rank: 1, section: 'top' as const, whyItMatters: null }]
+    repo.publishDigest(db, { date: '2026-09-28', headline: 'h', overview: null, stats, entries: entry(old.id) })
+    repo.publishDigest(db, { date: '2026-10-05', headline: 'h', overview: null, stats, entries: entry(week.id) })
+    repo.publishDigest(db, { date: '2026-10-08', headline: 'h', overview: null, stats, entries: entry(today.id) })
+    expect(repo.recentPublished(db, '2026-10-08', 7)).toEqual([{ id: week.id, date: '2026-10-05', title: 'This week news' }])
+
+    repo.markFollowUp(db, today.id, week.id)
+    expect(repo.getLatestDigest(db)!.entries[0]!.followUpOf).toEqual({ itemId: week.id, titleKo: 'This week news', digestDate: '2026-10-05' })
+  })
+
+  it('번역: 문단별로 저장해 검색에도 걸리고, 본문을 다시 뽑으면 지워진다. 한국어 기사는 번역 대상이 아니다', () => {
+    const db = openDb(':memory:')
+    const { id } = repo.upsertRawItem(db, raw())
+    repo.saveContent(db, id, ['First paragraph.', 'Second paragraph.'], true)
+    expect(repo.getItemDetail(db, id)).toMatchObject({ translation: 'missing', paragraphsKo: null })
+    repo.saveTranslation(db, id, ['첫째 문단 번역', null], 'test-model')
+    expect(repo.getItemDetail(db, id)).toMatchObject({ translation: 'done', paragraphsKo: ['첫째 문단 번역', null] })
+    repo.setSaved(db, id, true)
+    expect(repo.searchItems(db, { scope: 'saved', query: '문단 번역' }).map((r) => r.itemId)).toEqual([id])
+    repo.saveContent(db, id, ['New body.'], true)
+    expect(repo.getItemDetail(db, id)).toMatchObject({ translation: 'missing', paragraphsKo: null })
+
+    expect(repo.needsTranslation({ lang: 'ko', title: 'Claude 4 출시', snippet: '' })).toBe(false)
+    expect(repo.needsTranslation({ lang: null, title: '앤트로픽이 새 모델을 공개했다', snippet: '오늘 발표된 Claude는…' })).toBe(false)
+    expect(repo.needsTranslation({ lang: 'en', title: 'Claude 4 released', snippet: 'Anthropic today…' })).toBe(true)
+  })
+
+  it('질문 대화: 범위(기사·브리핑 날짜)별로 쌓이고, 인용을 함께 저장하며, 지우면 그 범위만 지운다', () => {
+    const db = openDb(':memory:')
+    const { id } = repo.upsertRawItem(db, raw())
+    const item = { kind: 'item' as const, itemId: id }
+    const day = { kind: 'digest' as const, date: '2026-10-07' }
+    repo.addChatMessage(db, item, { role: 'user', content: '핵심은?' })
+    repo.addChatMessage(db, item, { role: 'assistant', content: '새 모델이다 [¶2].', citations: [2], model: 'm' })
+    repo.addChatMessage(db, day, { role: 'user', content: '꼭 읽을 것은?' })
+    expect(repo.listChatMessages(db, item).map((m) => [m.role, m.citations])).toEqual([['user', []], ['assistant', [2]]])
+    expect(repo.listChatMessages(db, day)).toHaveLength(1)
+    repo.clearChat(db, item)
+    expect(repo.listChatMessages(db, item)).toEqual([])
+    expect(repo.listChatMessages(db, day)).toHaveLength(1)
+  })
 })

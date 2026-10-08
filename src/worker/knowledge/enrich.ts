@@ -4,6 +4,7 @@ import { modelFor, type AppConfig } from '../config'
 import type { Db } from '../db/db'
 import * as repo from '../db/repo'
 import { LlmSession } from '../llm/service'
+import { isExtractable } from './content'
 import { extractArticle } from './extract'
 
 // 기사를 저장하면 뒤에서 하는 일 (DESIGN.md 6.2절):
@@ -18,15 +19,6 @@ const TagsJsonSchema = {
   additionalProperties: false,
   required: ['tags'],
   properties: { tags: { type: 'array', items: { type: 'string' } } }
-}
-
-function isExtractable(url: string, kind: string): boolean {
-  if (kind === 'paper') return false
-  try {
-    return new URL(url).hostname !== 'news.ycombinator.com'
-  } catch {
-    return false
-  }
 }
 
 export interface EnrichDeps {

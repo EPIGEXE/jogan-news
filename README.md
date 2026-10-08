@@ -1,27 +1,28 @@
-# AI 브리핑
+# Jogan
 
 LLM·에이전트 소식을 매일 모아 한국어로 요약해 주는 Windows 상주형 데스크톱 앱.
 
 문서: [개요](docs/01-overview.md) · [아키텍처](docs/02-architecture.md) · [DB 구조](docs/03-database.md) · [주요 흐름](docs/04-business-flows.md) · 설계 기록 [DESIGN.md](DESIGN.md)
 
-현재 단계: **3단계 완료 · 설치 파일 지원** — 매일 브리핑(수집 → 선별 → 요약), 저장·메모·태그, 라이브러리·아카이브 검색, 자동 실행
+현재 단계: **4단계 완료** — 매일 브리핑(수집 → 선별 → 요약), 저장·메모·태그, 라이브러리·아카이브 검색, AI 질문(문단 인용), 자동 실행, 설치 파일
 
 ## 설치해서 쓰기
 
 ```sh
 npm install
-npm run dist     # → dist/AINews-Setup-<버전>.exe
+npm run dist     # → dist/Jogan-Setup-<버전>.exe
 ```
 
-1. `dist/AINews-Setup-<버전>.exe`를 실행해 설치합니다. 서명하지 않은 설치 파일이라 Windows가 "PC 보호" 경고를 띄우면 **추가 정보 → 실행**을 누릅니다. 관리자 권한 없이 사용자 폴더에 설치됩니다.
+1. `dist/Jogan-Setup-<버전>.exe`를 실행해 설치합니다. 서명하지 않은 설치 파일이라 Windows가 "PC 보호" 경고를 띄우면 **추가 정보 → 실행**을 누릅니다. 관리자 권한 없이 사용자 폴더에 설치됩니다.
 2. 처음 실행하면 **설정**에서 Groq API 키를 입력합니다. 설치판은 `.env`를 읽지 않고, 입력한 키를 Windows 계정으로 암호화해 저장합니다.
 3. 설정에서 **Windows 시작 시 실행**을 켭니다. 이후로는 로그인하면 창 없이 트레이에서 시작하고, 하루 한 번 브리핑을 만들어 알림을 띄웁니다.
 4. 업데이트는 코드를 고친 뒤 다시 `npm run dist`로 만든 설치 파일을 덮어 설치하면 됩니다. 저장한 기사·메모·설정은 그대로 남습니다(제거해도 데이터는 남김).
 
 사용법:
 - 창을 닫아도 트레이에 남습니다. 완전히 끄려면 트레이 메뉴 → 종료.
-- 트레이 메뉴의 "지금 새로고침"이나 화면의 "다시 만들기"로 바로 만들 수 있습니다.
-- 단축키: `Ctrl+Alt+N` 창 열기 · 목록에서 `J`/`K` 이동, `S` 저장, `M` 메모, `Enter` 원문 (오늘·라이브러리·아카이브 공통)
+- 오늘 브리핑이 아직 없으면 트레이 메뉴 "지금 브리핑 만들기"나 화면의 "오늘 브리핑 만들기"로 바로 만들 수 있습니다. 같은 날 다시 만들기는 없습니다(결과가 거의 같고, 낮 동안 쌓인 글은 다음 날 브리핑에 들어감).
+- 단축키: `Ctrl+Alt+N` 창 열기 · 목록에서 `J`/`K` 이동, `Enter` 기사 읽기, `S` 저장, `O` 원문 · 읽기 화면에서 `Esc` 목록으로, `M` 메모, `/` 질문, `T` 본문 한국어·원문·함께 보기, `H` 드래그한 문장 하이라이트 · `?` 단축키 안내
+- 기사 읽기 화면의 질문 단에서 기사 본문을 근거로 질문할 수 있습니다. 답변의 ¶번호를 누르면 본문의 그 문단으로 갑니다. 메뉴의 "질문"에서는 오늘 브리핑 전체에 질문합니다.
 - 기사를 저장하면 원문 본문을 보관하고 태그를 추천합니다. 라이브러리에서 제목·요약·본문·메모로 검색할 수 있습니다.
 - 데이터: `%APPDATA%\AINews\` (ainews.db, diagnostics.log, 암호화된 API 키). 개발 모드와 설치판이 같은 폴더를 씁니다.
 
@@ -42,7 +43,6 @@ npm test
 ```
 
 - 스타일은 Tailwind v4. 색·크기는 `src/renderer/src/styles/tokens.css`(@theme)에 있는 토큰 유틸리티만 씁니다(`bg-paper`, `text-ink-muted` …). 임의 값(`bg-[#fff]`)이나 색을 직접 쓰지 않습니다.
-- 개발 모드에서는 메뉴 하단 "부품 견본"에서 컴포넌트 상태별 모습을 볼 수 있습니다.
 - 화면 확인용 스크린샷(개발 모드만): `AINEWS_USER_DATA=<폴더> AINEWS_SCREENSHOT=<파일.png> AINEWS_ROUTE=today npx electron .`
 - `npm run dev`가 `does not provide an export named 'BrowserWindow'`로 실패하면, 터미널에 `ELECTRON_RUN_AS_NODE` 환경 변수가 켜져 있는 것입니다. 일반 터미널에서 실행하세요.
 
@@ -50,8 +50,9 @@ npm test
 
 | 파일 | 내용 |
 |---|---|
-| `config/sources.yaml` | 수집 소스, 가중치, 켜기/끄기 |
+| `config/sources.yaml` | 수집 소스, 가중치, 켜기/끄기, GitHub 릴리스 감시 목록 |
 | `config/interests.yaml` | 관심 키워드 (1차 거르기 점수) |
 | `config/models.yaml` | 역할별 Groq 모델 |
 | `config/pricing.yaml` | 모델 단가 (비용 계산) |
-| `config/prompts/*.md` | 선별·묶기·요약·머리글 프롬프트 |
+| `config/quick-actions.yaml` | 질문 탭의 빠른 질문 버튼 |
+| `config/prompts/*.md` | 선별·묶기·지난 7일 중복 확인·요약·번역·머리글·태그·질문 프롬프트 |

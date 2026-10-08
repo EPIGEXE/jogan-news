@@ -1,6 +1,6 @@
 import { join } from 'node:path'
 import { app, utilityProcess, type UtilityProcess } from 'electron'
-import type { RunProgress } from '@shared/types'
+import type { ChatEvent, RunProgress } from '@shared/types'
 import type {
   MainToWorker,
   WorkerMethod,
@@ -33,13 +33,14 @@ export class WorkerClient implements WorkerRpc {
       getApiKey(): string | null
       onProgress(p: RunProgress): void
       onItemUpdated(itemId: number): void
+      onChatEvent(event: ChatEvent): void
       log: LogFn
     }
   ) {}
 
   start(): void {
     const child = utilityProcess.fork(join(import.meta.dirname, 'worker.js'), [], {
-      serviceName: 'AINews Worker',
+      serviceName: 'Jogan Worker',
       stdio: 'pipe'
     })
     this.child = child
@@ -106,6 +107,9 @@ export class WorkerClient implements WorkerRpc {
         break
       case 'item-updated':
         this.opts.onItemUpdated(msg.itemId)
+        break
+      case 'chat':
+        this.opts.onChatEvent(msg.event)
         break
       case 'log':
         if (msg.level !== 'info') this.opts.log(`worker-${msg.level}`, msg.message)

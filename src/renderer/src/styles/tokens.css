@@ -16,9 +16,9 @@
   /* 글자 */
   --color-ink: #111114;
   --color-ink-body: #22222a;
-  --color-ink-secondary: #45454d;
-  --color-ink-muted: #5b5b63;
-  --color-ink-faint: #6b6b73; /* 종이 배경에서 명암비 4.5:1 이상 */
+  --color-ink-secondary: #33333a;
+  --color-ink-muted: #45454d;
+  --color-ink-faint: #5a5a62; /* 흐린 보조 글자. 13px 이상, 장식성 정보(원제·시각)에만 */
   --color-ink-read: #7a7a82;
   --color-ink-inverse: #f5f5f2;
 
@@ -33,6 +33,10 @@
   --color-accent: #b2410e;
   --color-danger: #b42318;
 
+  /* 하이라이트 (형광펜). 글자색은 그대로 두고 바탕만 칠한다. strong은 펜 자국 가운데의 짙은 잉크·마우스를 올렸을 때 */
+  --color-highlight: #f3e3a3;
+  --color-highlight-strong: #ecd57f;
+
   /* 글꼴 */
   --font-*: initial;
   --font-display: 'Hahmlet', 'Noto Serif KR', 'Batang', serif;
@@ -41,23 +45,27 @@
 
   /* 글자 크기 · 줄 간격 */
   --text-*: initial;
-  --text-headline: 26px;
+  --text-display: 36px; /* 기사 읽기 화면 제목 */
+  --text-display--line-height: 1.3;
+  --text-headline: 30px;
   --text-headline--line-height: 1.35;
-  --text-masthead: 22px;
+  --text-masthead: 24px;
   --text-masthead--line-height: 1.3;
-  --text-subhead: 20px;
+  --text-subhead: 22px;
   --text-subhead--line-height: 1.4;
-  --text-title: 16px;
+  --text-title: 18px;
   --text-title--line-height: 1.45;
-  --text-reading: 15px;
+  --text-lead: 19px; /* 기사 읽기 화면 리드(요약) */
+  --text-lead--line-height: 1.75;
+  --text-reading: 18px;
   --text-reading--line-height: 1.8;
-  --text-body: 14px;
+  --text-body: 16px;
   --text-body--line-height: 1.65;
-  --text-label: 13px;
+  --text-label: 14px;
   --text-label--line-height: 1.5;
-  --text-meta: 12px;
+  --text-meta: 14px;
   --text-meta--line-height: 1.5;
-  --text-caption: 11px;
+  --text-caption: 13px;
   --text-caption--line-height: 1.5;
 
   /* 자간 */
@@ -77,7 +85,140 @@
   --inset-shadow-*: initial;
   --drop-shadow-*: initial;
 
+  /* 움직임: "인쇄소의 움직임" (DESIGN.md 13.9절). 튀지 않고, 끝으로 갈수록 잉크가 스미듯 느려진다 */
+  --ease-*: initial;
+  --ease-ink: cubic-bezier(0.2, 0.7, 0.2, 1); /* 잉크가 번져 멈춤: 나타남·채움 */
+  --ease-paper: cubic-bezier(0.3, 0.8, 0.3, 1); /* 종이가 미끄러져 놓임: 이동·등장 */
+  --ease-out: cubic-bezier(0.4, 0, 1, 1); /* 사라짐 */
+  --ease-linear: linear;
+
+  --animate-*: initial;
+  --animate-paper-feed: paper-feed 220ms var(--ease-paper) both; /* 토스트: 윤전기에서 쪽지가 나옴 */
+  --animate-paper-out: paper-out 160ms var(--ease-out) both;
+  --animate-timer: timer 2400ms linear both; /* 토스트 남은 시간 선 */
+  --animate-stamp: stamp 200ms var(--ease-ink) both; /* 도장 찍기 */
+  --animate-marker: marker 260ms var(--ease-ink) both; /* 형광펜 긋기 */
+  --animate-nudge-in: nudge-in 160ms var(--ease-paper) both; /* 버튼이 살짝 들어옴 */
+  --animate-flash: flash 1200ms var(--ease-ink) both; /* 짚어 준 문단의 형광 잔상 */
+  --animate-ink-in: ink-in 180ms var(--ease-ink) both; /* 인쇄되어 나타남 */
+  --animate-caret: caret 1s steps(1) infinite; /* 타자기 커서 */
+  --animate-rule-draw: rule-draw 600ms var(--ease-ink) both; /* 오늘 판 인쇄 완료: 이중선이 그어짐 */
+  --animate-ink-breathe: ink-breathe 1400ms ease-in-out infinite alternate; /* 불러오는 중: 잉크가 배어듦 */
+  --animate-paper-drop: paper-drop 200ms var(--ease-paper) both; /* 대화상자: 종이를 책상에 놓음 */
+  --animate-fade-in: fade-in 120ms var(--ease-ink) both;
+
+  @keyframes paper-feed {
+    from {
+      clip-path: inset(0 0 100% 0);
+      opacity: 0.6;
+    }
+    to {
+      clip-path: inset(0);
+      opacity: 1;
+    }
+  }
+  @keyframes paper-out {
+    to {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+  }
+  @keyframes timer {
+    from {
+      transform: scaleX(1);
+    }
+    to {
+      transform: scaleX(0);
+    }
+  }
+  @keyframes stamp {
+    0% {
+      transform: scale(1.3);
+      opacity: 0.3;
+    }
+    60% {
+      transform: scale(0.94);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(1);
+    }
+  }
+  @keyframes marker {
+    from {
+      background-size: 0% var(--marker-height);
+    }
+    to {
+      background-size: 100% var(--marker-height);
+    }
+  }
+  @keyframes nudge-in {
+    from {
+      opacity: 0;
+      transform: translateX(4px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes flash {
+    from {
+      background-color: var(--color-highlight);
+    }
+    to {
+      background-color: transparent;
+    }
+  }
+  @keyframes ink-in {
+    from {
+      opacity: 0;
+      filter: blur(1px);
+    }
+    to {
+      opacity: 1;
+      filter: none;
+    }
+  }
+  @keyframes caret {
+    50% {
+      opacity: 0;
+    }
+  }
+  @keyframes rule-draw {
+    from {
+      transform: scaleX(0);
+    }
+    to {
+      transform: scaleX(1);
+    }
+  }
+  @keyframes ink-breathe {
+    from {
+      opacity: 0.55;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes paper-drop {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
   /* 레이아웃 전환 지점: 이보다 넓으면 3단 */
   --breakpoint-*: initial;
-  --breakpoint-wide: 56.25rem; /* 900px */
+  --breakpoint-wide: 56.25rem; /* 900px: 메뉴·목록·패널이 나란히 */
+  --breakpoint-reader: 75rem; /* 1200px: 기사 읽기 화면에서 메모·질문을 오른쪽에 고정 */
 }

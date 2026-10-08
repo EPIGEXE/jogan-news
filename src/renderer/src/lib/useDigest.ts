@@ -57,8 +57,15 @@ export function useDigest(): DigestState {
     setError(null)
     setRunning(true)
     setProgress({ stage: 'collect', message: '준비 중' })
-    void api.runNow()
-  }, [])
+    void api.runNow().then((started) => {
+      // 건너뛰었으면(오늘 브리핑이 이미 있음) "준비 중"에 멈춰 있지 않게 되돌린다
+      if (!started) {
+        setRunning(false)
+        setProgress(null)
+        void load()
+      }
+    })
+  }, [load])
 
   const patchEntry = useCallback((itemId: number, patch: Partial<DigestEntryDTO>) => {
     setDigest((d) => (d ? { ...d, entries: d.entries.map((e) => (e.itemId === itemId ? { ...e, ...patch } : e)) } : d))

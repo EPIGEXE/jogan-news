@@ -26,7 +26,7 @@ export function Tag({ name, onRemove, onSelect, selected = false, count }: Props
           aria-pressed={selected}
           onClick={onSelect}
           className={cn(
-            'cursor-pointer border-0 border-b-2 bg-transparent p-0 hover:text-ink',
+            'min-h-7 cursor-pointer border-0 border-b-2 bg-transparent px-0.5 hover:text-ink',
             selected ? 'border-accent font-bold text-ink' : 'border-transparent'
           )}
         >
@@ -41,7 +41,7 @@ export function Tag({ name, onRemove, onSelect, selected = false, count }: Props
           aria-label={`${name} 태그 떼기`}
           title="태그 떼기"
           onClick={onRemove}
-          className="cursor-pointer border-0 bg-transparent px-0.5 text-ink-faint hover:text-danger"
+          className="inline-flex size-6 cursor-pointer items-center justify-center rounded-control border-0 bg-transparent text-ink-muted hover:bg-paper-sunken hover:text-danger"
         >
           ×
         </button>

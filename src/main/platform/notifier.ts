@@ -46,7 +46,7 @@ export class BriefingNotifications implements BriefingNotifier {
   ) {}
 
   briefingReady(headline: string): void {
-    this.notifier.show(`📰 AI 브리핑 · ${shortDate(new Date())}`, headline, () => {
+    this.notifier.show(`📰 Jogan · ${shortDate(new Date())}`, headline, () => {
       this.openWindow('today')
       this.status.set('idle')
     })

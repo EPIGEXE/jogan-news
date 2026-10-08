@@ -18,7 +18,7 @@ function setup(opts: { online?: boolean; run?: () => Promise<RunResult> } = {}) 
     status: { set: (s: TrayState) => states.push(s) },
     notifier: { briefingReady: vi.fn(), briefingFailed: vi.fn() },
     worker: { call, setApiKey: vi.fn() } as unknown as WorkerRpc,
-    events: { progress: vi.fn(), digestUpdated: vi.fn(), itemUpdated: vi.fn(), navigate: vi.fn() },
+    events: { progress: vi.fn(), digestUpdated: vi.fn(), itemUpdated: vi.fn(), navigate: vi.fn(), chat: vi.fn() },
     log: vi.fn()
   } satisfies BriefingDeps
   return { service: new BriefingService(deps), deps, states, call }
