@@ -245,7 +245,7 @@ v3까지는 Python으로 설계했지만, 상주형 데스크톱 앱에 필요�
 - **작업대처럼:** 메뉴 / 목록 / 기사 패널의 3단 구성입니다. 키보드만으로 훑고, 저장하고, 메모할 수 있어야 합니다.
 - **테마:** 라이트("조간")가 기본입니다. 다크("야간판")는 같은 토큰 이름에 값만 바꿔 넣을 수 있게 처음부터 CSS 변수로 만듭니다(추후).
 
-**디자인 토큰** (`src/renderer/src/styles/tokens.css`의 Tailwind `@theme`가 유일한 원본. 토큰 이름이 곧 유틸리티 이름: `--color-paper` → `bg-paper`, `--text-headline` → `text-headline`. Tailwind 기본 색·글꼴·크기·그림자는 `initial`로 지워서 토큰 밖의 값은 쓸 수 없다. `bg-[#fff]` 같은 임의 값은 쓰지 않는다)
+**디자인 토큰** (`src/renderer/src/app/styles/tokens.css`의 Tailwind `@theme`가 유일한 원본. 토큰 이름이 곧 유틸리티 이름: `--color-paper` → `bg-paper`, `--text-headline` → `text-headline`. Tailwind 기본 색·글꼴·크기·그림자는 `initial`로 지워서 토큰 밖의 값은 쓸 수 없다. `bg-[#fff]` 같은 임의 값은 쓰지 않는다)
 
 | 분류 | 토큰 | 값 (조간) | 용도 |
 |---|---|---|---|
@@ -290,44 +290,25 @@ v3까지는 Python으로 설계했지만, 상주형 데스크톱 앱에 필요�
 - 글꼴은 인터넷 없이도 뜨도록 woff2 파일을 앱에 같이 넣습니다(둘 다 OFL 라이선스).
 - 터치·클릭 영역은 최소 40px 높이를 지킵니다.
 
-**컴포넌트 구조** (`src/renderer/src/components/`)
+**화면 코드 구조** (`src/renderer/src/`, 2026-10-08 개편: 화면 단위 + 공용 도메인 분리, import는 `@/` 별칭)
 
-| 계층 | 컴포넌트 | 설명 |
-|---|---|---|
-| `layout/` | `AppShell` | 3단 구성. 창이 좁으면 목록과 기사 패널이 한 단으로 합쳐짐 |
-| | `NavRail` | 제호, 메뉴, 태그, 비용 |
-| | `ListPane` / `DetailPane` | 가운데 목록 / 오른쪽 기사 패널 영역 (`ResizeHandle`로 너비 조절) |
-| `ui/` (도메인 모름) | `Masthead` | "Jogan" 제호 + 이중선 |
-| | `SectionLabel` | 명조 강조색 섹션 이름 |
-| | `Tabs` | 밑줄형 탭 (분류 필터, 메모/질문/하이라이트) |
-| | `Button` | `solid`(먹색) / `outline` / `text` |
-| | `Segmented` | 붙은 버튼 전환기 (본문 한국어 / 원문 / 함께 보기) |
-| | `Dialog` · `Chip` · `Skeleton` | 대화상자 · 빠른 질문 칩 · 불러오는 중 자리 표시 |
-| | `Kicker` | 기사 위 분류 표시 |
-| | `OriginalTitle` | 이탤릭 원제 |
-| | `Meta` | 출처·점수 등 작은 정보 |
-| | `LinedTextarea` | 줄 노트 모양 입력란 |
-| `article/` (도메인) | `EditionHeader` | 날짜, 수집 통계, 오늘의 한 줄 |
-| | `ArticleRow` | 목록 행. 상태: 기본 / 읽음 / 선택 / 저장됨 / 메모 있음 |
-| | `ArticleGroup` | 섹션 이름 + 행 묶음 |
-| | `ArticlePreview` | 옆 패널 개요(분류, 제목, 원제, 출처, 요약, 왜 중요한가) |
-| | `RowReadButton` | 목록 줄 오른쪽 "읽기 →" |
-| | `ArticleBody` · `HighlightList` · `HighlightCard` · `SelectionToolbar` | 본문(번역·하이라이트), 하이라이트 목록·카드, 선택 막대 |
-| | `WhyItMatters` | 위아래 굵은 괘선 상자 |
-| | `ArticleActions` | 저장 / 원문 열기 / 질문 |
-| | `TagList` | 태그와 태그 추가 |
-| | `MemoPad` | `LinedTextarea` + 자동 저장 상태 |
-| | `ArticleDetail` | 기사 패널 전체: 칼럼 + 저장·원문 + 태그 + [메모 / 본문 / 질문 / 하이라이트] 탭 |
-| | `ArticleBody` | 읽기 모드 본문, 문단 번호(¶) |
-| | `TagList` | 기사 태그, 떼기·추가, 추천 중 표시 |
-| | `LibraryRow` | 라이브러리·검색 결과 한 줄 (출처·날짜·태그·메모 첫 줄) |
-| `app/` | `BudgetMeter`, `EmptyState`, `ErrorNotice`, `RunProgress`, `ListHeader` | 비용 표시, 빈 화면, 오류 안내, 생성 진행, 목록 머리 |
-| `views/` | `DigestView` | 브리핑 한 호(지면 머리 + 섹션 목록 + 기사 패널). 오늘·아카이브가 함께 씀 |
-| | `ItemListView` | 기사 목록 + 기사 패널. 라이브러리·아카이브 검색이 함께 씀 |
+| 폴더 | 내용 |
+|---|---|
+| `app/` | `App`(화면 전환), `layout/`(`NavRail` 제호·메뉴, `TitleBar` 제목 표시줄·창 버튼), `global/`(`Toaster`, `ShortcutHelp`), `styles/`(`tokens.css` 디자인·움직임 토큰 원본, `app.css`, `fonts.ts`) |
+| `screens/<화면>/` | `page.tsx` 하나와, 그 화면에서만 쓰는 `components/`. today · library · archive · ask · sources(`Funnel` · `DailyBars` · `SourceTable`) · settings(`ApiKeyField`) · diagnostics |
+| `domains/article/` | 목록 행(`ArticleRow` · `LibraryRow` · `RowReadButton` · `ArticleGroup`), 옆 패널 개요(`ArticlePreview`), 기사 읽기 화면(`ArticleReader` · `ArticleBody` · `WhyItMatters`), `MemoPad` · `TagList`, 목록+패널 조합(`ItemListView`), 상세·저장 동작·자동 번역·본문 보기 방식(`article.ts`) |
+| `domains/digest/` | 브리핑 한 호(`DigestView`: 지면 머리 + 섹션 목록 + 옆 패널, 오늘·아카이브가 함께 씀), `EditionHeader`, `RunProgress`, `useDigest` |
+| `domains/highlight/` | `HighlightList` · `HighlightCard` · `SelectionToolbar`, 위치 계산(`highlight.ts`) |
+| `domains/chat/` | `ChatPanel` · `ArticleChat`, `useChat` |
+| `common/ui/` | 기사를 모르는 기본 부품: `Button`(solid/outline/text) · `Tabs` · `Segmented` · `Dialog` · `Chip` · `Skeleton` · `Form` · `Icon` · `Text`(`SectionLabel` · `Kicker` · `OriginalTitle` · `Meta` · `Caption` · `Help`) · `Tag` · `SearchInput` · `LinedTextarea` · `Masthead` · `Notice` |
+| `common/layout/` | `AppShell`(3단 틀, `ListPane` · `DetailPane` · `SinglePane`), `ResizeHandle`, `Page`, `ListHeader` |
+| `common/lib/` | `api`(preload 호출) · `cn` · `format` · `toast` · `useListKeys` · `useSlidingIndicator` |
 
 규칙:
-- `ui/` 컴포넌트는 기사 데이터를 모르고 토큰만 씁니다. 색이나 크기 값을 직접 쓰지 않습니다(하드코딩 금지).
-- 화면(`pages/`)은 `views/`·`layout/`·`article/`을 조합만 합니다. 목록+패널 조합은 `views/`에 한 번만 둡니다.
+- 의존은 `app → screens → domains → common` 한 방향입니다. 도메인은 `app`·`screens`를 부르지 않고, 도메인끼리는 `digest → article → highlight · chat`만 씁니다.
+- `common/ui`는 기사 데이터를 모르고 토큰만 씁니다. 색이나 크기 값을 직접 쓰지 않습니다(하드코딩 금지).
+- 화면 전용 부품은 그 화면 폴더에 두고, 두 화면 이상이 쓰게 되면 도메인이나 `common`으로 옮깁니다. `common`은 작게 유지합니다.
+- 화면 쪽 공용 폴더를 `shared`가 아니라 `common`으로 부르는 것은, 프로세스 공통 코드 `src/shared/`(`@shared/…`)와 헷갈리지 않게 하려는 것입니다.
 - 컴포넌트마다 상태별 모습을 한눈에 볼 수 있게 개발용 견본 화면(`/dev/components`)을 둡니다.
 
 ## 7. LLM 설계 (Groq)
@@ -623,11 +604,11 @@ ai-news/
 │  │  ├─ llm/               client.ts (LLMClient 인터페이스), groq.ts, rateLimiter.ts, models.ts
 │  │  └─ db/                schema.ts, migrations/, repo.ts
 │  ├─ renderer/             React 앱
-│  │  ├─ pages/             Today, Article, Library, Archive, Ask, Settings
-│  │  ├─ components/        layout/, ui/, article/, app/ (6.6절)
-│  │  ├─ styles/            tokens.css (디자인 토큰 원본, Tailwind @theme), app.css, fonts.ts
-│  │  ├─ assets/fonts/      Hahmlet, Pretendard (woff2)
-│  │  └─ lib/
+│  │  ├─ app/               App, layout(NavRail·TitleBar), global, styles(tokens.css·app.css·fonts.ts)
+│  │  ├─ screens/           today, library, archive, ask, sources, settings, diagnostics (page.tsx)
+│  │  ├─ domains/           article, digest, highlight, chat
+│  │  ├─ common/            ui, layout, lib
+│  │  └─ assets/fonts/      Hahmlet, Pretendard (woff2)
 │  └─ shared/               types.ts, ipc.ts (IPC 계약), schemas.ts (zod)
 ├─ resources/               아이콘 (트레이 상태별)
 └─ DESIGN.md
@@ -742,6 +723,18 @@ ai-news/
 - **구성:** 왼쪽에 신문 맨 윗줄처럼 날짜 · 제N호 · 기사 N건(날짜 글꼴), 오른쪽에 상태(만드는 중 / 새 브리핑 / 연결 대기 중 / 생성 실패, 트레이 배지와 같은 색 점, 누르면 오늘 화면), 아래 괘선 위에 생성 중 진행선. 제호는 메뉴 맨 위에 있으므로 윗줄에는 넣지 않습니다.
 - 빈 곳은 끌기 영역(`.app-drag`), 버튼은 `.app-no-drag`. 창이 비활성이면 글자와 버튼 기호가 흐려집니다.
 - 화면 높이는 `h-screen` 대신 "제목 표시줄을 뺀 나머지"(`h-full` 사슬)로 바꿨습니다.
+
+### 13.11 출처 페이지 (2026-10-08)
+
+- 왼쪽 메뉴 "출처": 어디서 자료를 받는지, 얼마나 받아서 얼마나 실리는지 보는 읽기 전용 통계 화면. 출처 편집은 하지 않음(sources.yaml).
+- 흐름(수집 → 중복 합침 → AI 선별 → 실림 → 저장)과 단계별 LLM 비용, 최근 30일 날마다 막대, 출처별 표(상태·수집·실림·채택률·저장, 펼치면 수집 조건·수집 기록·실린 기사).
+- 기간 7일·30일·전체, 기간 숫자와 전체 누적을 함께 표시.
+- 출처별 수집 성공·실패를 남기는 `source_fetches`(마이그레이션 8)를 추가. 브리핑 생성·미리 수집 모두 기록, 90일 보관.
+
+### 13.12 화면 코드 개편: 폴더 구조와 TanStack Query (2026-10-08)
+
+- 화면 코드를 `app/ · screens/ · domains/ · common/`(화면 단위 + 공용 도메인)으로 옮기고 import를 `@/` 별칭으로 바꿨습니다(6.6절 표).
+- 화면 데이터를 TanStack Query 캐시로 옮겼습니다. 이전에는 같은 기사를 오늘 목록·검색 결과·상세가 각자 들고 `onPatch` 콜백으로 맞췄는데, 이제 `patchArticle`이 모든 캐시를 한꺼번에 고치고, Main 알림(`item-updated`, `digest-updated`)은 `QueryProvider` 한 곳에서 무효화로 잇습니다. 전역 스토어는 필요가 없어 넣지 않았습니다.
 
 ## 14. 리스크와 대응
 

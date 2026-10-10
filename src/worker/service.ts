@@ -1,8 +1,8 @@
 import type Groq from 'groq-sdk'
 import { dateKey } from '@shared/schedule'
-import type { ChatEvent, ChatScope, UsageSummary } from '@shared/types'
+import type { ChatEvent, ChatScope, SourceStatsDTO, StatsPeriod, UsageSummary } from '@shared/types'
 import type { WorkerApi } from '@shared/worker-protocol'
-import { loadConfig, type AppConfig } from './config'
+import { describeSource, loadConfig, type AppConfig } from './config'
 import { openDb, type Db } from './db/db'
 import * as repo from './db/repo'
 import { askQuestion } from './knowledge/chat'
@@ -13,6 +13,9 @@ import { createGroq } from './llm/groq'
 import { collectAndStore, runPipeline, type PipelineDeps } from './pipeline/run'
 
 // Worker의 RPC 구현. Electron에 의존하지 않는다 (Worker 프로세스의 메시지 처리는 index.ts).
+
+/** 출처 페이지의 날마다 추이 기간 */
+const DAILY_DAYS = 30
 
 /** 미리 수집할 때 받는 구간. 중복은 DB에서 거르므로 넉넉하게 둔다 */
 const COLLECT_ONLY_HOURS = 24
@@ -80,7 +83,7 @@ export class WorkerService implements Async<WorkerApi> {
    */
   async collectOnly() {
     if (this.running || this.collecting) return { collected: 0, skipped: true }
-    const job = collectAndStore({ db: this.db, config: this.config, log: this.opts.log }, new Date(Date.now() - COLLECT_ONLY_HOURS * 3600_000))
+    const job = collectAndStore({ db: this.db, config: this.config, log: this.opts.log }, new Date(Date.now() - COLLECT_ONLY_HOURS * 3600_000), 'collect')
     this.collecting = job
     try {
       const { collected, failedSources } = await job
@@ -152,6 +155,37 @@ export class WorkerService implements Async<WorkerApi> {
 
   removeHighlight({ id }: { id: number }) {
     return repo.removeHighlight(this.db, id)
+  }
+
+  /** 출처 페이지: 설정의 모든 출처(꺼진 것 포함)에 통계를 붙인다. 전체 흐름은 설정에서 빠진 옛 출처까지 합한다 */
+  getSourceStats({ period }: { period: StatsPeriod }): SourceStatsDTO {
+    const since = period === 'all' ? null : new Date(Date.now() - period * 24 * 3600_000).toISOString()
+    const raw = repo.sourceStats(this.db, since, DAILY_DAYS)
+    const sources = this.config.allSources.map((s) => {
+      const d = describeSource(s)
+      return {
+        id: s.id,
+        name: s.name,
+        method: d.method,
+        enabled: s.enabled,
+        weight: s.weight,
+        rules: d.rules,
+        url: d.url,
+        period: raw.period.get(s.id) ?? repo.emptyFunnel(),
+        total: raw.total.get(s.id) ?? repo.emptyFunnel(),
+        lastFetch: raw.lastFetch.get(s.id) ?? null,
+        failures: raw.failures.get(s.id) ?? 0,
+        recentFetches: raw.recentFetches.get(s.id) ?? [],
+        recentPublished: raw.recentPublished.get(s.id) ?? []
+      }
+    })
+    return {
+      period,
+      funnel: { period: repo.sumFunnels([...raw.period.values()]), total: repo.sumFunnels([...raw.total.values()]) },
+      cost: raw.cost,
+      daily: raw.daily,
+      sources
+    }
   }
 
   search(p: Parameters<WorkerApi['search']>[0]) {

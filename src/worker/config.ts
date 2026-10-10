@@ -72,7 +72,10 @@ const ModelsSchema = z.object({
 export type ModelsConfig = z.infer<typeof ModelsSchema>
 
 export interface AppConfig {
+  /** 켜진 출처 (수집에 씀) */
   sources: SourceConfig[]
+  /** 꺼진 출처까지 전부 (출처 페이지에 씀) */
+  allSources: SourceConfig[]
   interests: Interest[]
   models: ModelsConfig
   pricing: Pricing
@@ -98,6 +101,7 @@ export function loadConfig(dir: string): AppConfig {
   const sources = z.object({ sources: z.array(SourceSchema) }).parse(yaml(join(dir, 'sources.yaml'))).sources
   return {
     sources: sources.filter((s) => s.enabled),
+    allSources: sources,
     interests: InterestsSchema.parse(yaml(join(dir, 'interests.yaml'))).keywords,
     models: ModelsSchema.parse(yaml(join(dir, 'models.yaml'))),
     pricing: loadPricing(join(dir, 'pricing.yaml')),
@@ -121,4 +125,56 @@ export function modelFor(models: ModelsConfig, role: 'triage' | 'summary' | 'dig
   const spec = models[role]
   if (!saveMode) return spec
   return { ...spec, model: models.saveMode.model, reasoningEffort: models.saveMode.reasoningEffort }
+}
+
+const METHOD: Record<SourceConfig['type'], string> = {
+  rss: 'RSS',
+  hf_papers: 'HF 논문 API',
+  arxiv: 'arXiv 검색',
+  hackernews: 'HN 검색',
+  github_releases: 'GitHub 릴리스'
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return url
+  }
+}
+
+/** 출처 페이지에 보여줄 수집 방식·조건 (sources.yaml 설정을 사람이 읽을 문장으로) */
+export function describeSource(s: SourceConfig): { method: string; rules: string[]; url: string | null } {
+  const rules: string[] = []
+  let url: string | null = null
+  switch (s.type) {
+    case 'rss':
+      url = s.url
+      rules.push(`${hostOf(s.url)}의 RSS 피드`)
+      if (s.keywordFilter) rules.push('관심 키워드(interests.yaml)에 맞는 글만')
+      if (s.maxItems) rules.push(`피드 앞에서 ${s.maxItems}개만`)
+      break
+    case 'hf_papers':
+      url = 'https://huggingface.co/papers'
+      rules.push('Hugging Face 오늘의 논문(추천수를 화제성으로 씀)')
+      break
+    case 'arxiv':
+      url = 'https://arxiv.org'
+      rules.push(`검색식: ${s.query}`)
+      rules.push(`최신순 ${s.maxResults}건까지`)
+      break
+    case 'hackernews':
+      url = 'https://news.ycombinator.com'
+      rules.push(`${s.tags === 'show_hn' ? 'Show HN' : '일반 글'} 검색: ${s.queries.join(', ')}`)
+      rules.push(`${s.minPoints}점 넘는 글만`)
+      break
+    case 'github_releases':
+      url = 'https://github.com'
+      rules.push(`감시 저장소 ${s.repos.length}개: ${s.repos.map((r) => r.name).join(', ')}`)
+      rules.push('메이저·마이너 버전만 (패치·rc·beta 제외)')
+      break
+  }
+  if (s.lang === 'ko') rules.push('한국어 글 (번역하지 않음)')
+  rules.push(`신뢰도 가중치 ${s.weight}`)
+  return { method: METHOD[s.type], rules, url }
 }

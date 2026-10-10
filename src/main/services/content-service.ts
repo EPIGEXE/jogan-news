@@ -6,6 +6,8 @@ import type {
   ItemDetailDTO,
   LibraryItemDTO,
   SearchParams,
+  SourceStatsDTO,
+  StatsPeriod,
   TagCount
 } from '@shared/types'
 import type { WorkerRpc } from './ports'
@@ -38,6 +40,10 @@ export class ContentService {
 
   translateItem(itemId: number): Promise<boolean> {
     return this.worker.call('translateItem', { itemId })
+  }
+
+  getSourceStats(period: StatsPeriod): Promise<SourceStatsDTO> {
+    return this.worker.call('getSourceStats', { period })
   }
 
   /** 낮 동안 미리 수집 (LLM 없음) */

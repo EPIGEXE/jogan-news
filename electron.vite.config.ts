@@ -18,6 +18,7 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react(), tailwindcss()],
-    resolve: { alias: { '@shared': resolve('src/shared') } }
+    // @/ = 화면 코드 루트 (app · screens · domains · common)
+    resolve: { alias: { '@shared': resolve('src/shared'), '@': resolve('src/renderer/src') } }
   }
 })

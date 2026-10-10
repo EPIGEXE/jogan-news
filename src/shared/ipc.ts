@@ -14,6 +14,8 @@ import type {
   QuickActions,
   RunProgress,
   SearchParams,
+  SourceStatsDTO,
+  StatsPeriod,
   TagCount,
   UsageSummary
 } from './types'
@@ -39,6 +41,7 @@ export const IPC = {
   removeTag: 'item:remove-tag',
   // 라이브러리·아카이브
   search: 'library:search',
+  getSourceStats: 'sources:get-stats',
   listTags: 'library:list-tags',
   listDigests: 'archive:list-digests',
   getDigest: 'archive:get-digest',
@@ -103,7 +106,7 @@ export interface ApiKeyStatus {
   hint: string | null
 }
 
-export type Route = 'today' | 'library' | 'archive' | 'ask' | 'settings' | 'diagnostics'
+export type Route = 'today' | 'library' | 'archive' | 'ask' | 'sources' | 'settings' | 'diagnostics'
 
 export interface AinewsApi {
   // 브리핑
@@ -128,6 +131,8 @@ export interface AinewsApi {
   removeTag(itemId: number, name: string): Promise<string[]>
   // 라이브러리·아카이브
   search(p: SearchParams): Promise<LibraryItemDTO[]>
+  // 출처
+  getSourceStats(period: StatsPeriod): Promise<SourceStatsDTO>
   listTags(): Promise<TagCount[]>
   listDigests(): Promise<DigestSummaryDTO[]>
   getDigest(date: string): Promise<DigestDTO | null>

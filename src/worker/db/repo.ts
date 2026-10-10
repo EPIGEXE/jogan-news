@@ -9,12 +9,14 @@ import {
   type DigestEntryDTO,
   type DigestStats,
   type DigestSummaryDTO,
+  type FunnelCounts,
   type HighlightDTO,
   type HighlightRange,
   type ItemDetailDTO,
   type LibraryItemDTO,
   type SearchParams,
   type Section,
+  type SourceFetchDTO,
   type SourceRef,
   type TagCount
 } from '@shared/types'
@@ -338,6 +340,186 @@ export function costSince(db: Db, sinceIso: string): number {
 
 export function costForRun(db: Db, runId: number): number {
   return one<{ c: number | null }>(db, 'SELECT SUM(cost_usd) c FROM llm_usage WHERE run_id = ?', runId)?.c ?? 0
+}
+
+// ── 출처 통계 ─────────────────────────────────────────
+
+export function recordSourceFetch(
+  db: Db,
+  f: { sourceId: string; at: string; reason: 'briefing' | 'collect'; ok: boolean; fetched: number; newItems: number; error: string | null }
+): void {
+  run(
+    db,
+    'INSERT INTO source_fetches (source_id, at, reason, ok, fetched, new_items, error) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    f.sourceId,
+    f.at,
+    f.reason,
+    f.ok ? 1 : 0,
+    f.fetched,
+    f.newItems,
+    f.error
+  )
+}
+
+export function pruneSourceFetches(db: Db, keepDays: number): void {
+  run(db, 'DELETE FROM source_fetches WHERE at < ?', new Date(Date.now() - keepDays * 24 * 3600 * 1000).toISOString())
+}
+
+interface FetchRow {
+  source_id: string
+  at: string
+  reason: 'briefing' | 'collect'
+  ok: number
+  fetched: number
+  new_items: number
+  error: string | null
+}
+
+const toFetch = (r: FetchRow): SourceFetchDTO => ({
+  at: r.at,
+  reason: r.reason,
+  ok: r.ok === 1,
+  fetched: r.fetched,
+  newItems: r.new_items,
+  error: r.error
+})
+
+const emptyFunnel = (): FunnelCounts => ({ collected: 0, merged: 0, triaged: 0, published: 0, saved: 0 })
+
+/** 출처별 단계 개수. sinceIso가 없으면 전체 기간. 수집 시각 기준으로 센다 */
+function funnelBySource(db: Db, sinceIso: string | null): Map<string, FunnelCounts> {
+  const rows = all<FunnelCounts & { source_id: string }>(
+    db,
+    `SELECT i.source_id,
+            count(*) AS collected,
+            sum(i.merged_into IS NOT NULL) AS merged,
+            sum(i.triaged_at IS NOT NULL) AS triaged,
+            sum(EXISTS (SELECT 1 FROM digest_entries de WHERE de.item_id = i.id)) AS published,
+            sum(EXISTS (SELECT 1 FROM saves s WHERE s.item_id = i.id)) AS saved
+     FROM items i
+     WHERE ? IS NULL OR i.collected_at >= ?
+     GROUP BY i.source_id`,
+    sinceIso,
+    sinceIso
+  )
+  return new Map(
+    rows.map((r) => [r.source_id, { collected: r.collected, merged: r.merged, triaged: r.triaged, published: r.published, saved: r.saved }])
+  )
+}
+
+export interface SourceStatsRaw {
+  period: Map<string, FunnelCounts>
+  total: Map<string, FunnelCounts>
+  lastFetch: Map<string, SourceFetchDTO>
+  failures: Map<string, number>
+  recentFetches: Map<string, SourceFetchDTO[]>
+  recentPublished: Map<string, { itemId: number; titleKo: string; digestDate: string }[]>
+  daily: { date: string; collected: number; published: number }[]
+  cost: { period: number; total: number; byRole: { role: string; usd: number }[] }
+}
+
+/** 출처 페이지용 통계. 출처 이름·설명은 설정에서 붙인다(WorkerService) */
+export function sourceStats(db: Db, sinceIso: string | null, dailyDays: number): SourceStatsRaw {
+  const recent = all<FetchRow & { rn: number }>(
+    db,
+    `SELECT * FROM (
+       SELECT f.*, row_number() OVER (PARTITION BY source_id ORDER BY at DESC) AS rn FROM source_fetches f
+     ) WHERE rn <= 10 ORDER BY source_id, at DESC`
+  )
+  const recentFetches = new Map<string, SourceFetchDTO[]>()
+  for (const r of recent) {
+    const list = recentFetches.get(r.source_id) ?? []
+    list.push(toFetch(r))
+    recentFetches.set(r.source_id, list)
+  }
+  const lastFetch = new Map([...recentFetches].map(([id, list]) => [id, list[0]!]))
+  const failures = new Map(
+    all<{ source_id: string; n: number }>(
+      db,
+      'SELECT source_id, count(*) AS n FROM source_fetches WHERE ok = 0 AND (? IS NULL OR at >= ?) GROUP BY source_id',
+      sinceIso,
+      sinceIso
+    ).map((r) => [r.source_id, r.n])
+  )
+
+  const published = all<{ source_id: string; id: number; title: string; date: string }>(
+    db,
+    `SELECT source_id, id, title, date FROM (
+       SELECT i.source_id, i.id, coalesce(i.title_ko, i.title) AS title, d.date,
+              row_number() OVER (PARTITION BY i.source_id ORDER BY d.date DESC, de.rank) AS rn
+       FROM digest_entries de JOIN digests d ON d.id = de.digest_id JOIN items i ON i.id = de.item_id
+     ) WHERE rn <= 5`
+  )
+  const recentPublished = new Map<string, { itemId: number; titleKo: string; digestDate: string }[]>()
+  for (const r of published) {
+    const list = recentPublished.get(r.source_id) ?? []
+    list.push({ itemId: r.id, titleKo: r.title, digestDate: r.date })
+    recentPublished.set(r.source_id, list)
+  }
+
+  // 날마다: 그날 수집한 글 수(로컬 날짜), 그날 브리핑에 실린 글 수
+  const from = new Date()
+  from.setDate(from.getDate() - (dailyDays - 1))
+  const fromKey = localDateKey(from)
+  const collectedByDay = new Map(
+    all<{ day: string; n: number }>(
+      db,
+      "SELECT date(collected_at, 'localtime') AS day, count(*) AS n FROM items WHERE date(collected_at, 'localtime') >= ? GROUP BY day",
+      fromKey
+    ).map((r) => [r.day, r.n])
+  )
+  const publishedByDay = new Map(
+    all<{ day: string; n: number }>(
+      db,
+      'SELECT d.date AS day, count(*) AS n FROM digest_entries de JOIN digests d ON d.id = de.digest_id WHERE d.date >= ? GROUP BY d.date',
+      fromKey
+    ).map((r) => [r.day, r.n])
+  )
+  const daily: SourceStatsRaw['daily'] = []
+  for (let i = 0; i < dailyDays; i++) {
+    const d = new Date(from)
+    d.setDate(from.getDate() + i)
+    const key = localDateKey(d)
+    daily.push({ date: key, collected: collectedByDay.get(key) ?? 0, published: publishedByDay.get(key) ?? 0 })
+  }
+
+  const byRole = all<{ role: string; usd: number }>(
+    db,
+    'SELECT role, sum(cost_usd) AS usd FROM llm_usage WHERE ? IS NULL OR at >= ? GROUP BY role ORDER BY usd DESC',
+    sinceIso,
+    sinceIso
+  )
+  const total = one<{ c: number | null }>(db, 'SELECT sum(cost_usd) AS c FROM llm_usage')?.c ?? 0
+
+  return {
+    period: funnelBySource(db, sinceIso),
+    total: funnelBySource(db, null),
+    lastFetch,
+    failures,
+    recentFetches,
+    recentPublished,
+    daily,
+    cost: { period: byRole.reduce((n, r) => n + r.usd, 0), total, byRole }
+  }
+}
+
+export function sumFunnels(list: FunnelCounts[]): FunnelCounts {
+  return list.reduce(
+    (a, f) => ({
+      collected: a.collected + f.collected,
+      merged: a.merged + f.merged,
+      triaged: a.triaged + f.triaged,
+      published: a.published + f.published,
+      saved: a.saved + f.saved
+    }),
+    emptyFunnel()
+  )
+}
+
+export { emptyFunnel }
+
+function localDateKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 // ── 설정 ─────────────────────────────────────────────

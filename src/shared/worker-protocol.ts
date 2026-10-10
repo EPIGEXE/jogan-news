@@ -15,6 +15,8 @@ import type {
   QuickActions,
   RunProgress,
   SearchParams,
+  SourceStatsDTO,
+  StatsPeriod,
   TagCount,
   UsageSummary
 } from './types'
@@ -48,6 +50,8 @@ export interface WorkerApi {
   addHighlights(p: { itemId: number; ranges: HighlightRange[] }): HighlightDTO[]
   updateHighlightNote(p: { id: number; note: string }): HighlightDTO[]
   removeHighlight(p: { id: number }): HighlightDTO[]
+  /** 출처 페이지: 출처별 수집·선정 통계 */
+  getSourceStats(p: { period: StatsPeriod }): SourceStatsDTO
   /** 낮 동안 수집만 (LLM 없음). 새로 쌓인 글 수 */
   collectOnly(): { collected: number; skipped: boolean }
   addTag(p: { itemId: number; name: string }): string[]

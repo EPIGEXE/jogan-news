@@ -178,6 +178,35 @@ describe('repo', () => {
     expect(repo.getLatestDigest(db)!.entries[0]!.followUpOf).toEqual({ itemId: week.id, titleKo: 'This week news', digestDate: '2026-10-05' })
   })
 
+  it('출처 통계: 출처별 단계 개수(기간·전체), 수집 기록·실패, 실린 기사, 날마다 추이', () => {
+    const db = openDb(':memory:')
+    const a = repo.upsertRawItem(db, raw({ url: 'https://a.com/1', title: 'A one' }))
+    repo.upsertRawItem(db, raw({ url: 'https://a.com/2', title: 'A two' }))
+    const g = repo.upsertRawItem(db, raw({ sourceId: 'gn', sourceName: 'GeekNews', url: 'https://g.com/1', title: 'G one' }))
+    repo.saveTriage(db, a.id, { category: 'tools', relevance: 0.9, importance: 4 })
+    repo.publishDigest(db, { date: '2026-10-08', headline: 'h', overview: null, stats, entries: [{ itemId: a.id, rank: 1, section: 'top', whyItMatters: null }] })
+    repo.setSaved(db, a.id, true)
+    repo.mergeInto(db, a.id, [g.id])
+    const now = new Date().toISOString()
+    repo.recordSourceFetch(db, { sourceId: 'hn', at: now, reason: 'briefing', ok: true, fetched: 30, newItems: 2, error: null })
+    repo.recordSourceFetch(db, { sourceId: 'gn', at: now, reason: 'collect', ok: false, fetched: 0, newItems: 0, error: 'HTTP 403' })
+
+    const s = repo.sourceStats(db, new Date(Date.now() - 7 * 24 * 3600e3).toISOString(), 30)
+    expect(s.period.get('hn')).toEqual({ collected: 2, merged: 0, triaged: 1, published: 1, saved: 1 })
+    expect(s.total.get('gn')).toEqual({ collected: 1, merged: 1, triaged: 0, published: 0, saved: 0 })
+    expect(repo.sumFunnels([...s.total.values()]).collected).toBe(3)
+    expect(s.lastFetch.get('gn')).toMatchObject({ ok: false, error: 'HTTP 403', reason: 'collect' })
+    expect(s.failures.get('gn')).toBe(1)
+    expect(s.recentPublished.get('hn')).toEqual([{ itemId: a.id, titleKo: 'A one', digestDate: '2026-10-08' }])
+    expect(s.daily).toHaveLength(30)
+    expect(s.daily.at(-1)!.collected).toBe(3)
+
+    // 90일이 지난 기록은 지운다
+    repo.recordSourceFetch(db, { sourceId: 'hn', at: '2020-01-01T00:00:00.000Z', reason: 'briefing', ok: true, fetched: 1, newItems: 0, error: null })
+    repo.pruneSourceFetches(db, 90)
+    expect(repo.sourceStats(db, null, 1).recentFetches.get('hn')).toHaveLength(1)
+  })
+
   it('번역: 문단별로 저장해 검색에도 걸리고, 본문을 다시 뽑으면 지워진다. 한국어 기사는 번역 대상이 아니다', () => {
     const db = openDb(':memory:')
     const { id } = repo.upsertRawItem(db, raw())

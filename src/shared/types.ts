@@ -183,6 +183,60 @@ export interface QuickActions {
   digest: QuickAction[]
 }
 
+/** 출처 페이지의 기간: 최근 7일·30일 또는 전체 */
+export type StatsPeriod = 7 | 30 | 'all'
+
+/** 수집부터 저장까지 단계별 개수 */
+export interface FunnelCounts {
+  /** 이 출처에서 처음 수집한 글 */
+  collected: number
+  /** 같은 소식으로 다른 기사에 합쳐진 글 */
+  merged: number
+  /** AI 선별까지 간 글 */
+  triaged: number
+  /** 브리핑에 실린 글 */
+  published: number
+  saved: number
+}
+
+export interface SourceFetchDTO {
+  at: string
+  reason: 'briefing' | 'collect'
+  ok: boolean
+  fetched: number
+  newItems: number
+  error: string | null
+}
+
+export interface SourceStatDTO {
+  id: string
+  name: string
+  /** 수집 방식 이름 (RSS, GitHub 릴리스 …) */
+  method: string
+  enabled: boolean
+  weight: number
+  /** 사람이 읽을 수 있게 풀어 쓴 수집 조건 */
+  rules: string[]
+  url: string | null
+  period: FunnelCounts
+  total: FunnelCounts
+  lastFetch: SourceFetchDTO | null
+  /** 고른 기간 안의 수집 실패 횟수 */
+  failures: number
+  recentFetches: SourceFetchDTO[]
+  recentPublished: { itemId: number; titleKo: string; digestDate: string }[]
+}
+
+export interface SourceStatsDTO {
+  period: StatsPeriod
+  funnel: { period: FunnelCounts; total: FunnelCounts }
+  /** LLM 비용: 고른 기간과 전체, 단계(역할)별 */
+  cost: { period: number; total: number; byRole: { role: string; usd: number }[] }
+  /** 최근 30일 날마다 수집·실린 수 */
+  daily: { date: string; collected: number; published: number }[]
+  sources: SourceStatDTO[]
+}
+
 export interface DigestStats {
   sources: number
   collected: number

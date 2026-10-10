@@ -34,6 +34,8 @@ const MAX_WINDOW_HOURS = 72
 const SAVE_MODE_DIGEST_SIZE = 15
 /** 이 기간 안에 실린 소식은 다시 싣지 않는다 (큰 후속 소식은 '후속'으로 싣는다) */
 const RECENT_DAYS = 7
+/** 출처별 수집 기록을 남겨 두는 기간 */
+const SOURCE_FETCH_KEEP_DAYS = 90
 /** 이보다 본문이 짧으면(제목·한 줄 소개뿐) 브리핑에 싣지 않는다 */
 const MIN_BODY_CHARS = 300
 /** 본문 추출을 시도하는 후보 수 상한 = 브리핑 크기 × 이 값 */
@@ -73,11 +75,14 @@ function collectionSince(db: Db, now: Date): Date {
  */
 export async function collectAndStore(
   deps: Pick<PipelineDeps, 'db' | 'config' | 'log'> & { onProgress?: PipelineDeps['onProgress'] },
-  since: Date
+  since: Date,
+  reason: 'briefing' | 'collect' = 'briefing'
 ): Promise<{ collected: number; failedSources: string[] }> {
   const { db, config, log } = deps
   const onProgress = deps.onProgress ?? (() => {})
   const failedSources: string[] = []
+  // 출처별 수집 기록 (출처 페이지의 상태·실패 기록)
+  const errors = new Map<string, string>()
   let done = 0
   onProgress({ stage: 'collect', message: '소스에서 새 글을 가져오는 중', current: 0, total: config.sources.length })
   const batches = await Promise.all(
@@ -86,6 +91,7 @@ export async function collectAndStore(
         return await collectSource(s, since, config.interests)
       } catch (err) {
         failedSources.push(`${s.name} (${(err as Error).message})`)
+        errors.set(s.id, (err as Error).message.split('\n')[0]!.slice(0, 200))
         log('warn', `수집 실패: ${s.name}: ${(err as Error).message}`)
         return []
       } finally {
@@ -96,8 +102,16 @@ export async function collectAndStore(
 
   onProgress({ stage: 'dedup', message: '중복을 합치는 중' })
   let collected = 0
+  const at = new Date().toISOString()
   tx(db, () => {
-    for (const raw of batches.flat()) if (repo.upsertRawItem(db, raw).isNew) collected++
+    config.sources.forEach((s, i) => {
+      const items = batches[i]!
+      let fresh = 0
+      for (const raw of items) if (repo.upsertRawItem(db, raw).isNew) fresh++
+      collected += fresh
+      repo.recordSourceFetch(db, { sourceId: s.id, at, reason, ok: !errors.has(s.id), fetched: items.length, newItems: fresh, error: errors.get(s.id) ?? null })
+    })
+    repo.pruneSourceFetches(db, SOURCE_FETCH_KEEP_DAYS)
   })
   return { collected, failedSources }
 }

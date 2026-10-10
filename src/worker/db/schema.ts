@@ -176,5 +176,18 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX highlights_item ON highlights(item_id, paragraph);
   ALTER TABLE items ADD COLUMN follow_up_of INTEGER REFERENCES items(id);  -- 지난 7일 브리핑 기사의 후속 소식이면 그 기사
+  `,
+  /* 8: 출처별 수집 기록 (출처 페이지의 상태·실패 기록). 90일보다 오래된 기록은 지운다 */ `
+  CREATE TABLE source_fetches (
+    id INTEGER PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    reason TEXT NOT NULL,           -- briefing: 브리핑 생성, collect: 낮 동안 미리 수집
+    ok INTEGER NOT NULL,
+    fetched INTEGER NOT NULL,       -- 피드에서 받은 글 수
+    new_items INTEGER NOT NULL,     -- 그중 처음 본 글 수
+    error TEXT
+  );
+  CREATE INDEX source_fetches_source ON source_fetches(source_id, at);
   `
 ]

@@ -30,6 +30,7 @@ const api: AinewsApi = {
   removeTag: (itemId, name) => ipcRenderer.invoke(IPC.removeTag, itemId, name),
   // 라이브러리·아카이브
   search: (p) => ipcRenderer.invoke(IPC.search, p),
+  getSourceStats: (period) => ipcRenderer.invoke(IPC.getSourceStats, period),
   listTags: () => ipcRenderer.invoke(IPC.listTags),
   listDigests: () => ipcRenderer.invoke(IPC.listDigests),
   getDigest: (date) => ipcRenderer.invoke(IPC.getDigest, date),
