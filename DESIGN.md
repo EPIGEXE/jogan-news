@@ -294,19 +294,22 @@ v3까지는 Python으로 설계했지만, 상주형 데스크톱 앱에 필요�
 
 | 폴더 | 내용 |
 |---|---|
-| `app/` | `App`(화면 전환), `layout/`(`NavRail` 제호·메뉴, `TitleBar` 제목 표시줄·창 버튼), `global/`(`Toaster`, `ShortcutHelp`), `styles/`(`tokens.css` 디자인·움직임 토큰 원본, `app.css`, `fonts.ts`) |
-| `screens/<화면>/` | `page.tsx` 하나와, 그 화면에서만 쓰는 `components/`. today · library · archive · ask · sources(`Funnel` · `DailyBars` · `SourceTable`) · settings(`ApiKeyField`) · diagnostics |
-| `domains/article/` | 목록 행(`ArticleRow` · `LibraryRow` · `RowReadButton` · `ArticleGroup`), 옆 패널 개요(`ArticlePreview`), 기사 읽기 화면(`ArticleReader` · `ArticleBody` · `WhyItMatters`), `MemoPad` · `TagList`, 목록+패널 조합(`ItemListView`), 상세·저장 동작·자동 번역·본문 보기 방식(`article.ts`) |
-| `domains/digest/` | 브리핑 한 호(`DigestView`: 지면 머리 + 섹션 목록 + 옆 패널, 오늘·아카이브가 함께 씀), `EditionHeader`, `RunProgress`, `useDigest` |
-| `domains/highlight/` | `HighlightList` · `HighlightCard` · `SelectionToolbar`, 위치 계산(`highlight.ts`) |
-| `domains/chat/` | `ChatPanel` · `ArticleChat`, `useChat` |
+| `app/` | `App`(제목 표시줄·메뉴 틀과 화면 이동 처리), `router`(주소와 화면 연결), `layout/`(`NavRail` 제호·메뉴, `TitleBar` 제목 표시줄·창 버튼), `global/`(`Toaster`, `ShortcutHelp`), `styles/`(`tokens.css` 디자인·움직임 토큰 원본, `app.css`, `fonts.ts`) |
+| `screens/<화면>/` | `page.tsx` 하나와, 그 화면에서만 쓰는 `components/`·`queries.ts`. today · library · archive · ask · sources(`Funnel` · `DailyBars` · `SourceTable`) · settings(`ApiKeyField`) · diagnostics |
+| `domains/article/` | 역할별 하위 폴더: `components/`(`ArticleRow` · `LibraryRow` · `RowReadButton` · `ArticleGroup` · `ArticlePreview` · `ArticleBody` · `WhyItMatters` · `MemoPad` · `TagList`), `views/`(`ArticleReader` · `ItemListView`), `hooks/`(`useAutoTranslate` · `useBodyMode`), `queries.ts`(조회·변경 훅), `cache.ts`(`patchArticle`), `types.ts` |
+| `domains/digest/` | 브리핑 한 호(`DigestView`: 지면 머리 + 섹션 목록 + 옆 패널, 오늘·아카이브가 함께 씀), `EditionHeader`, `RunProgress`, `queries.ts`, `useDigest` |
+| `domains/highlight/` | `HighlightList` · `HighlightCard` · `SelectionToolbar`, 위치 계산(`highlight.ts`), `queries.ts`, `cache.ts` |
+| `domains/chat/` | `ChatPanel` · `ArticleChat`, `queries.ts`, `useChat` |
 | `common/ui/` | 기사를 모르는 기본 부품: `Button`(solid/outline/text) · `Tabs` · `Segmented` · `Dialog` · `Chip` · `Skeleton` · `Form` · `Icon` · `Text`(`SectionLabel` · `Kicker` · `OriginalTitle` · `Meta` · `Caption` · `Help`) · `Tag` · `SearchInput` · `LinedTextarea` · `Masthead` · `Notice` |
 | `common/layout/` | `AppShell`(3단 틀, `ListPane` · `DetailPane` · `SinglePane`), `ResizeHandle`, `Page`, `ListHeader` |
-| `common/lib/` | `api`(preload 호출) · `cn` · `format` · `toast` · `useListKeys` · `useSlidingIndicator` |
+| `common/lib/` | `api`(preload 호출) · `paths`(화면 주소) · `cn` · `format` · `toast` · `useListKeys` · `useSlidingIndicator` |
 
 규칙:
 - 의존은 `app → screens → domains → common` 한 방향입니다. 도메인은 `app`·`screens`를 부르지 않고, 도메인끼리는 `digest → article → highlight · chat`만 씁니다.
 - `common/ui`는 기사 데이터를 모르고 토큰만 씁니다. 색이나 크기 값을 직접 쓰지 않습니다(하드코딩 금지).
+- 도메인 안의 파일이 늘면 도메인을 쪼개지 않고 역할 폴더(`components/` · `views/` · `hooks/`)로 나눕니다. `index.ts`(배럴)는 두지 않고 파일을 직접 import합니다.
+- 조회·변경은 모두 `queries.ts`의 훅으로 만듭니다. 화면 컴포넌트는 `useQuery` · `useMutation` · `api`를 직접 부르지 않습니다(원문 열기·창 버튼·Main 알림 구독은 예외).
+- 화면 이동은 React Router로 합니다(`createHashRouter`). 읽는 기사·아카이브 날짜·검색어는 주소에 두고, 주소 문자열은 `common/lib/paths.ts`의 함수로만 만듭니다. 도메인의 뷰는 주소를 모르고 `readingItemId` · `onRead`만 받습니다.
 - 화면 전용 부품은 그 화면 폴더에 두고, 두 화면 이상이 쓰게 되면 도메인이나 `common`으로 옮깁니다. `common`은 작게 유지합니다.
 - 화면 쪽 공용 폴더를 `shared`가 아니라 `common`으로 부르는 것은, 프로세스 공통 코드 `src/shared/`(`@shared/…`)와 헷갈리지 않게 하려는 것입니다.
 - 컴포넌트마다 상태별 모습을 한눈에 볼 수 있게 개발용 견본 화면(`/dev/components`)을 둡니다.

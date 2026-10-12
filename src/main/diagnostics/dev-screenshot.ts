@@ -5,7 +5,7 @@ import type { MainWindow } from '../platform/window'
 
 /**
  * 개발용: 창을 그린 뒤 화면을 PNG로 저장하고 종료한다 (화면 확인 자동화).
- * AINEWS_SCREENSHOT=<파일.png>, AINEWS_ROUTE=<시작 화면>, AINEWS_KEYS=<쉼표로 구분한 키, 예: Enter,j,wheel:800,click:900:120,drag:804:400:600,move:400:420>.
+ * AINEWS_SCREENSHOT=<파일.png>, AINEWS_ROUTE=<시작 화면>, AINEWS_KEYS=<쉼표로 구분한 키, 예: Enter,j,wheel:800,click:900:120,drag:804:400:600,move:400:420,alt+Left>.
  * AINEWS_SIZE=<너비x높이>로 창 크기를 바꿀 수 있다. 설치판에서는 쓰지 않는다.
  */
 export function captureAndQuit(window: MainWindow, path: string, route?: Route, keys: string[] = []): void {
@@ -54,6 +54,14 @@ export function captureAndQuit(window: MainWindow, path: string, route?: Route, 
         const [x, y] = [Number(click[1]), Number(click[2])]
         win.webContents.sendInputEvent({ type: 'mouseDown', x, y, button: 'left', clickCount: 1 })
         win.webContents.sendInputEvent({ type: 'mouseUp', x, y, button: 'left', clickCount: 1 })
+        await wait(500)
+        continue
+      }
+      // alt+Left → Alt를 누른 채 그 키 (뒤로 · 앞으로 확인)
+      const alt = /^alt\+(.+)$/.exec(key)
+      if (alt) {
+        win.webContents.sendInputEvent({ type: 'keyDown', keyCode: alt[1]!, modifiers: ['alt'] })
+        win.webContents.sendInputEvent({ type: 'keyUp', keyCode: alt[1]!, modifiers: ['alt'] })
         await wait(500)
         continue
       }

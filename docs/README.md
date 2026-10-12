@@ -62,7 +62,7 @@ flowchart LR
 | 영역 | 선택 |
 |---|---|
 | 앱 | Electron (Main · Worker · Renderer 3개 프로세스), TypeScript |
-| 화면 | React + Vite + Tailwind CSS v4 (디자인 토큰은 `tokens.css`의 `@theme`), TanStack Query(IPC로 받은 데이터 캐시) |
+| 화면 | React + Vite + Tailwind CSS v4 (디자인 토큰은 `tokens.css`의 `@theme`), TanStack Query(IPC로 받은 데이터 캐시), React Router(화면 이동) |
 | DB | Node 내장 `node:sqlite` (FTS5 전문 검색 포함, 네이티브 모듈 빌드 불필요) |
 | LLM | Groq — `openai/gpt-oss-20b`(선별·태그), `openai/gpt-oss-120b`(묶기·중복 확인·요약·번역·머리글·질문) |
 | 수집·추출 | `rss-parser`, `@mozilla/readability` + `linkedom` |
@@ -216,9 +216,9 @@ flowchart TB
   app["app/<br/>App · NavRail · TitleBar · Toaster · ShortcutHelp · styles"] --> screens
   screens["screens/<br/>today · library · archive · ask · sources · settings · diagnostics"] --> domains
   subgraph domains["domains/"]
-    digest["digest<br/>DigestView · EditionHeader · RunProgress · useDigest"] --> article
-    article["article<br/>ArticleRow · ArticlePreview · ArticleReader · ArticleBody · MemoPad · ItemListView · article.ts"] --> highlight["highlight<br/>HighlightList · HighlightCard · SelectionToolbar"]
-    article --> chat["chat<br/>ChatPanel · ArticleChat · useChat"]
+    digest["digest<br/>DigestView · EditionHeader · RunProgress · queries · useDigest"] --> article
+    article["article<br/>components · views · hooks · queries · cache · types"] --> highlight["highlight<br/>HighlightList · HighlightCard · SelectionToolbar · queries"]
+    article --> chat["chat<br/>ChatPanel · ArticleChat · queries · useChat"]
   end
   domains --> common["common/<br/>ui · layout · lib"]
   screens --> common
@@ -228,21 +228,42 @@ flowchart TB
 
 | 폴더 | 내용 |
 |---|---|
-| `app/` | `App.tsx`(화면 전환), `providers/`(`QueryProvider`: 쿼리 캐시와 Main 알림 연결), `layout/`(`NavRail` 제호·메뉴, `TitleBar` 제목 표시줄·창 버튼), `global/`(`Toaster`, `ShortcutHelp`), `styles/`(`tokens.css`, `app.css`, `fonts.ts`). 진입점 `main.tsx`는 `src/renderer/src` 바로 아래 |
-| `screens/<화면>/` | `page.tsx`와, 그 화면에서만 쓰는 `components/`(출처 화면의 `Funnel`·`DailyBars`·`SourceTable`, 설정 화면의 `ApiKeyField`) |
-| `domains/article/` | 기사 쿼리·동작(`queries.ts`: 상세·검색·태그·저장·메모·읽음), 여러 캐시를 함께 고치는 `cache.ts`(`patchArticle`), 목록 행과 "읽기" 버튼, 옆 패널 개요, 기사 읽기 화면, 본문(번역·하이라이트 표시), 메모장, 태그, 목록+패널 조합(`ItemListView`: 라이브러리·아카이브 검색), 기사 상세·저장 동작·자동 번역·본문 보기 방식(`article.ts`) |
-| `domains/digest/` | 브리핑 한 호(`DigestView`: 오늘·아카이브 날짜별), 지면 머리, 생성 진행, 브리핑 구독(`useDigest`) |
-| `domains/highlight/` | 하이라이트 목록·카드·선택 막대, 위치 계산(`highlight.ts`) |
-| `domains/chat/` | 질문 패널(`ChatPanel`), 읽기 화면의 질문 단(`ArticleChat`), 대화·답변 스트리밍(`useChat`) |
+| `app/` | `App.tsx`(제목 표시줄·메뉴 틀과 화면 이동 처리), `router.tsx`(주소와 화면 연결), `providers/`(`QueryProvider`: 쿼리 캐시와 Main 알림 연결), `layout/`(`NavRail` 제호·메뉴, `TitleBar` 제목 표시줄·창 버튼), `global/`(`Toaster`, `ShortcutHelp`), `styles/`(`tokens.css`, `app.css`, `fonts.ts`). 진입점 `main.tsx`는 `src/renderer/src` 바로 아래 |
+| `screens/<화면>/` | `page.tsx`와, 그 화면에서만 쓰는 `components/`(출처 화면의 `Funnel`·`DailyBars`·`SourceTable`, 설정 화면의 `ApiKeyField`)와 `queries.ts`(설정·출처·진단 화면의 조회·변경 훅) |
+| `domains/article/` | 한 도메인 안에서 역할별로 나눕니다. `components/`(목록 행 `ArticleRow`·`LibraryRow`·`RowReadButton`·`ArticleGroup`, 옆 패널 개요 `ArticlePreview`, 본문 `ArticleBody`, `MemoPad`·`TagList`·`WhyItMatters`), `views/`(기사 읽기 화면 `ArticleReader`, 목록+패널 조합 `ItemListView`), `hooks/`(`useAutoTranslate`·`useBodyMode`), `queries.ts`(조회·변경 훅), `cache.ts`(여러 캐시를 함께 고치는 `patchArticle`), `types.ts`(`ArticleView`·`ArticleActions`) |
+| `domains/digest/` | 브리핑 한 호(`DigestView`: 오늘·아카이브 날짜별), 지면 머리, 생성 진행, `queries.ts`(브리핑·날짜 목록·만드는 중 여부·지금 만들기), 브리핑과 진행 상황을 묶은 `useDigest` |
+| `domains/highlight/` | 하이라이트 목록·카드·선택 막대, 위치 계산(`highlight.ts`), `queries.ts`(긋기·메모·지우기), `cache.ts`(`setHighlights`) |
+| `domains/chat/` | 질문 패널(`ChatPanel`), 읽기 화면의 질문 단(`ArticleChat`), `queries.ts`(지난 대화·빠른 질문·질문 보내기·지우기), 대화와 답변 스트리밍을 묶은 `useChat` |
 | `common/ui/` | 기사를 모르는 기본 부품(버튼, 탭, 전환기, 대화상자, 입력, 자리 표시, 제호, 안내). 토큰 유틸리티만 사용 |
 | `common/layout/` | 3단 틀(`AppShell`·`ListPane`·`DetailPane`·`SinglePane`), 너비 조절 손잡이, 단일 단 페이지 틀, 목록 머리 |
-| `common/lib/` | Main 호출(`api`), 쿼리 키(`queryKeys`), 비용(`useUsage`), `cn`, 날짜·금액 표시(`format`), 토스트(`toast`), 목록 단축키(`useListKeys`), 탭 밑줄 이동(`useSlidingIndicator`) |
+| `common/lib/` | Main 호출(`api`), 쿼리 키(`queryKeys`), 화면 주소(`paths`), 비용(`useUsageQuery`), `cn`, 날짜·금액 표시(`format`), 토스트(`toast`), 목록 단축키(`useListKeys`), 탭 밑줄 이동(`useSlidingIndicator`) |
 
 의존은 `app → screens → domains → common` 한 방향이고, 도메인끼리는 `digest → article → highlight · chat`만 씁니다. 화면 쪽 공용 폴더를 `common`으로 부르는 것은 프로세스 공통 코드 `src/shared/`와 헷갈리지 않게 하려는 것입니다.
 
+도메인 안의 파일이 늘면 도메인을 쪼개지 않고 `article`처럼 역할 폴더(`components/`·`views/`·`hooks/`)로 나눕니다. 폴더를 묶어 다시 내보내는 `index.ts`(배럴)는 두지 않고, 쓰는 파일을 직접 import합니다.
+
+#### 화면 이동: React Router
+
+화면 이동은 React Router(`react-router` 7)가 맡습니다. 주소와 화면의 연결은 `app/router.tsx`에, 주소를 만드는 함수는 `common/lib/paths.ts`에 모여 있습니다. 설치판은 화면을 `file://`로 열기 때문에 주소를 `#` 뒤에 붙이는 방식(`createHashRouter`)을 씁니다.
+
+| 주소 | 화면 |
+|---|---|
+| `/today`, `/today/:itemId` | 오늘 브리핑 목록, 그 기사의 읽기 화면 |
+| `/library`, `/library/:itemId` | 라이브러리 목록, 읽기 화면 |
+| `/archive`, `/archive?q=검색어` | 아카이브 날짜 목록, 검색 결과 |
+| `/archive/search/:itemId?q=검색어` | 검색 결과에서 연 읽기 화면 |
+| `/archive/:date`, `/archive/:date/:itemId` | 그날 브리핑, 그 안의 읽기 화면 |
+| `/ask`, `/sources`, `/settings`, `/diagnostics` | 질문, 출처, 설정, 진단 |
+
+- **틀과 화면:** `App`이 제목 표시줄·메뉴를 그리고, 주소에 맞는 화면을 그 안(`Outlet`)에 표시합니다. 최신 브리핑과 생성 진행 상황은 `App`이 들고 있다가 오늘·질문 화면에 넘깁니다(`useOutletContext`). 화면을 옮겨도 진행 상황이 끊기지 않게 하기 위함입니다.
+- **읽기 화면:** 어떤 기사를 읽는 중인지는 주소에 있습니다. 목록 뷰(`DigestView`, `ItemListView`)는 주소를 모르고 `readingItemId`·`onRead`만 받으며, 화면(`page.tsx`)이 `useReadingRoute`로 주소와 잇습니다. 목록에서 열면 방문 기록에 쌓이고, 읽는 중 이전·다음 기사로 옮기면 기록을 바꿔치기해서 뒤로 가면 바로 목록입니다.
+- **뒤로·앞으로:** Alt+←/→와 마우스 옆 버튼을 `App`에서 처리합니다(Electron은 기본으로 처리하지 않음).
+- **다른 화면에서 기사 열기:** 질문 화면의 인용은 `/today/기사번호`로 이동합니다. 따로 넘겨주는 상태가 없습니다.
+- **Main의 화면 이동 요청**(알림 클릭, 트레이 메뉴)은 화면 이름(`Route`)으로 오고, `App`이 주소로 바꿔 이동합니다.
+
 #### 화면 데이터: TanStack Query
 
-화면이 Worker(IPC)에서 받은 데이터는 모두 TanStack Query 캐시에 둡니다. 키는 `common/lib/queryKeys.ts`의 `qk`에 모여 있습니다.
+화면이 Worker(IPC)에서 받은 데이터는 모두 TanStack Query 캐시에 둡니다. 키는 `common/lib/queryKeys.ts`의 `queryKeys`에 모여 있습니다.
 
 | 데이터 | 키 | 쓰는 곳 |
 |---|---|---|
@@ -253,15 +274,20 @@ flowchart TB
 | 대화·빠른 질문 | `['chat',범위]`, `['quickActions']` | 질문 단, 질문 화면 |
 | 비용·설정·키·자동 시작 | `['usage']`, `['settings']`, `['apiKey']`, `['autostart']` | 메뉴 아래 비용, 설정 |
 | 출처 통계 | `['sources',기간]` | 출처 |
+| 만드는 중 여부 | `['running']` | 오늘 화면, 제목 표시줄 |
+| 진단 | `['diag','trigger']`, `['diag','events']` | 진단 (열 때마다 새로 읽음) |
+| 창 최대화 여부 | `['windowMaximized']` | 제목 표시줄의 창 버튼 |
 
+- **조회·변경은 모두 훅:** 화면 컴포넌트는 `useQuery`·`useMutation`이나 `api`를 직접 부르지 않고, 각 폴더 `queries.ts`의 훅(`useItemDetailQuery`·`useToggleSaveMutation`·`useRunNowMutation`·`useAskChatMutation`·`useSettingsQuery` 등)만 씁니다. 여러 화면이 쓰는 데이터의 훅은 도메인에, 한 화면만 쓰는 훅은 그 화면 폴더에 둡니다. `api`를 직접 부르는 것은 데이터가 아닌 것뿐입니다(원문 열기, 창 최소화·닫기, Main 알림 구독).
 - **언제 다시 읽나:** 데이터는 로컬 Worker에서 오고, 바뀌는 때는 사용자 동작과 Main의 알림뿐입니다. 그래서 시간이 지났다고 다시 읽지 않고(`staleTime` 무한), 창 포커스·재시도로도 다시 부르지 않습니다. 바뀔 때 직접 고치거나 무효화합니다.
-- **기사 고치기:** 같은 기사가 브리핑·검색 결과·상세 캐시에 따로 들어 있으므로, 저장·메모·태그·읽음은 `patchArticle`이 모든 캐시를 한꺼번에 고칩니다(먼저 화면에 반영하고 DB에 저장). 화면 컴포넌트는 `useArticleActions`·`useMarkRead`만 부르고, 목록끼리 상태를 넘겨주지 않습니다.
+- **기사 고치기:** 같은 기사가 브리핑·검색 결과·상세 캐시에 따로 들어 있으므로, 저장·메모·태그·읽음은 `patchArticle`이 모든 캐시를 한꺼번에 고칩니다(먼저 화면에 반영하고 DB에 저장). 화면 컴포넌트는 `useArticleActions`(저장·메모·태그 변경 훅을 묶은 것)·`useMarkReadMutation`만 부르고, 목록끼리 상태를 넘겨주지 않습니다. 저장은 먼저 반영했다가 실패하면 되돌리고 알립니다.
 - **Main 알림 연결** (`app/providers/QueryProvider.tsx`):
   - `item-updated`(저장 후 보강·번역 끝남): 그 기사 상세를 다시 읽고 새 태그·저장 여부를 목록에도 반영, "추천 중" 표시를 거두고 태그 목록을 무효화
   - `digest-updated`(새 브리핑): 브리핑·날짜 목록·비용·출처 통계를 무효화
   - 생성 끝: 비용을 무효화
 - **저장 여부가 바뀌면** 저장 목록·날짜 목록·출처 통계를 "다음에 열 때 새로 읽기"로 표시합니다(지금 보는 목록은 그대로 둠).
-- **캐시에 두지 않는 것:** 생성 진행 상황(`useDigest`의 실시간 알림), 지금 받는 답변 조각(`useChat`), 진단 화면의 이벤트 기록처럼 흘러가는 값은 화면 상태로 둡니다. 화면 전환·단축키 안내 같은 순수 화면 상태도 `App`의 상태로 충분해 별도 전역 스토어는 쓰지 않습니다.
+- **캐시에 두지 않는 것:** 생성 진행 단계(`useDigest`가 받는 실시간 알림)와 지금 받는 답변 조각(`useChat`)처럼 흘러가는 값은 화면 상태로 둡니다. 어느 화면·어느 기사를 보는지는 주소에, 단축키 안내 같은 순수 화면 상태는 컴포넌트 상태에 두므로 별도 전역 스토어는 쓰지 않습니다.
+- **알림으로 고치는 캐시:** 만드는 중 여부, 진단 이벤트 기록, 창 최대화 여부는 처음 한 번 읽고, 그 뒤로는 Main 알림이 올 때 훅 안에서 캐시를 고칩니다.
 
 ### 2.6 폴더 구조 요약
 

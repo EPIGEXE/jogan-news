@@ -1,112 +1,136 @@
+// ============================================================================
+// 대화 상태 훅
+//
+// [역할]
+// - 한 범위(기사 하나 또는 그날 브리핑)의 대화와 지금 받는 답변을 한 묶음으로 제공
+// - 질문을 보내고, 조각으로 오는 답변을 이어 붙여 표시
+// - 답변이 끝나면 질문했던 범위의 대화에 추가
+// ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { ChatEvent, ChatMessageDTO, ChatScope, QuickActions } from '@shared/types'
+import { useQueryClient } from '@tanstack/react-query'
+import type { ChatEvent, ChatMessageDTO, ChatScope } from '@shared/types'
 import { api } from '@/common/lib/api'
-import { qk } from '@/common/lib/queryKeys'
+import { appendChatMessage, useAskChatMutation, useChatMessagesQuery, useClearChatMutation } from '@/domains/chat/queries'
 
-const keyOf = (s: ChatScope | null) => (s ? (s.kind === 'item' ? `item:${s.itemId}` : `digest:${s.date}`) : '')
-const NO_SCOPE: ChatScope = { kind: 'item', itemId: -1 }
-const EMPTY: ChatMessageDTO[] = []
+// 범위를 구분하는 글자 (범위가 바뀌었는지 비교하는 용도, 범위가 없으면 빈 문자열)
+const scopeKeyOf = (chatScope: ChatScope | null) =>
+    chatScope ? (chatScope.kind === 'item' ? `item:${chatScope.itemId}` : `digest:${chatScope.date}`) : ''
 
 export interface ChatState {
-  messages: ChatMessageDTO[]
-  /** 지금 받고 있는 답변 (스트리밍 중일 때만) */
-  streaming: string | null
-  error: string | null
-  ask(question: string): void
-  clear(): void
+    messages: ChatMessageDTO[]
+    streamingAnswer: string | null // 지금 받고 있는 답변 (받는 중일 때만, 아니면 null)
+    errorMessage: string | null
+    ask(question: string): void
+    clear(): void
 }
 
 /**
- * 한 범위(기사 하나 또는 그날 브리핑)의 대화. 지난 대화는 쿼리 캐시에 두고(다른 기사를 보고 돌아와도 바로 보임),
- * 지금 받는 답변 조각은 화면 상태로 둔다. 질문하면 답변 조각을 requestId로 골라 받고,
- * ask 응답보다 답변 조각이 먼저 도착하는 경우를 대비해 모르는 requestId의 조각은 잠시 모아 둔다.
+ * 한 범위(기사 하나 또는 그날 브리핑)의 대화
+ *
+ * - 지난 대화는 쿼리 캐시에 보관 (다른 기사를 보고 돌아와도 바로 보임)
+ * - 지금 받는 답변 조각은 화면 상태로 보관
+ * - 질문하면 답변 조각을 requestId로 골라 받음
+ * - ask 응답보다 답변 조각이 먼저 도착하는 경우를 대비해 모르는 requestId의 조각은 잠시 모아 둠
+ *
+ * @param {ChatScope | null} scope - 대화 범위 (null이면 조회 · 질문 · 지우기 모두 하지 않음)
+ * @returns {ChatState} 대화 · 받는 중인 답변 · 오류 · 질문하기 · 지우기 함수
  */
 export function useChat(scope: ChatScope | null): ChatState {
-  const qc = useQueryClient()
-  const chatKey = qk.chat(scope ?? NO_SCOPE)
-  const messages =
-    useQuery({ queryKey: chatKey, queryFn: () => api.getChat(scope!), enabled: scope !== null }).data ?? EMPTY
-  const append = useCallback(
-    (key: readonly unknown[], m: ChatMessageDTO) => qc.setQueryData<ChatMessageDTO[]>(key, (list) => [...(list ?? []), m]),
-    [qc]
-  )
-  const [streaming, setStreaming] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const current = useRef<string | null>(null)
-  const early = useRef(new Map<string, ChatEvent[]>())
-  const key = keyOf(scope)
-  const scopeRef = useRef(scope)
-  scopeRef.current = scope
+    // =============================== 훅 ===================================
+    const queryClient = useQueryClient()
 
-  // 답변이 끝나면 질문할 때의 범위 캐시에 붙인다 (그 사이 다른 기사로 넘어가도 제자리에 들어가게)
-  const askedKey = useRef<readonly unknown[]>(chatKey)
-  const apply = useCallback((e: ChatEvent) => {
-    if (e.type === 'delta') setStreaming((t) => (t ?? '') + e.text)
-    else if (e.type === 'done') {
-      append(askedKey.current, e.message)
-      setStreaming(null)
-      current.current = null
-    } else {
-      setError(e.message)
-      setStreaming(null)
-      current.current = null
-    }
-  }, [append])
+    // =============================== 쿼리 훅 ===================================
+    const messages = useChatMessagesQuery(scope)
+    const { mutate: sendQuestion } = useAskChatMutation()
+    const { mutate: clearChat } = useClearChatMutation()
 
-  useEffect(() => {
-    setStreaming(null)
-    setError(null)
-    current.current = null
-  }, [key])
+    // =============================== 상태 ===================================
+    const [streamingAnswer, setStreamingAnswer] = useState<string | null>(null) // 지금 받고 있는 답변
+    const [errorMessage, setErrorMessage] = useState<string | null>(null)
 
-  useEffect(
-    () =>
-      api.onChatEvent((e) => {
-        if (e.requestId === current.current) return apply(e)
-        const list = early.current.get(e.requestId) ?? []
-        list.push(e)
-        early.current.set(e.requestId, list)
-      }),
-    [apply]
-  )
+    // =============================== Ref ===================================
+    const pendingRequestId = useRef<string | null>(null) // 답을 기다리는 질문의 requestId (ask 응답 전에는 'pending', 없으면 null)
+    const earlyChatEvents = useRef(new Map<string, ChatEvent[]>()) // ask 응답보다 먼저 도착한 답변 조각 (requestId별)
+    const scopeRef = useRef(scope) // 최신 범위 (ask · clear를 다시 만들지 않고 읽는 용도)
+    scopeRef.current = scope
+    // 답변이 끝나면 질문할 때의 범위 캐시에 붙이기 위한 기록 (그 사이 다른 기사로 넘어가도 제자리에 들어가게)
+    const askedScope = useRef<ChatScope | null>(null)
 
-  const ask = useCallback(
-    (question: string) => {
-      const s = scopeRef.current
-      const q = question.trim()
-      if (!s || !q || current.current) return
-      setError(null)
-      setStreaming('')
-      current.current = 'pending'
-      askedKey.current = qk.chat(s)
-      api.ask(s, q).then(
-        ({ requestId, userMessage }) => {
-          append(askedKey.current, userMessage)
-          current.current = requestId
-          for (const e of early.current.get(requestId) ?? []) apply(e)
-          early.current.delete(requestId)
+    // =============================== 계산 ===================================
+    const scopeKey = scopeKeyOf(scope)
+
+    // 답변 조각 하나 처리 (조각이면 이어 붙이고, 끝 · 오류면 받기 종료)
+    const applyChatEvent = useCallback(
+        (chatEvent: ChatEvent) => {
+            if (chatEvent.type === 'delta') setStreamingAnswer((streamedText) => (streamedText ?? '') + chatEvent.text)
+            else if (chatEvent.type === 'done') {
+                if (askedScope.current) appendChatMessage(queryClient, askedScope.current, chatEvent.message)
+                setStreamingAnswer(null)
+                pendingRequestId.current = null
+            } else {
+                setErrorMessage(chatEvent.message)
+                setStreamingAnswer(null)
+                pendingRequestId.current = null
+            }
         },
-        (err: Error) => {
-          setError(err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
-          setStreaming(null)
-          current.current = null
-        }
-      )
-    },
-    [apply, append]
-  )
+        [queryClient]
+    )
 
-  const clear = useCallback(() => {
-    const s = scopeRef.current
-    if (!s || current.current) return
-    void api.clearChat(s).then(() => qc.setQueryData(qk.chat(s), []))
-  }, [qc])
+    // 질문 보내기 (범위가 없거나 빈 질문이거나 답을 기다리는 중이면 무시)
+    const ask = useCallback(
+        (question: string) => {
+            const chatScope = scopeRef.current
+            const trimmedQuestion = question.trim()
+            if (!chatScope || !trimmedQuestion || pendingRequestId.current) return
+            setErrorMessage(null)
+            setStreamingAnswer('')
+            pendingRequestId.current = 'pending'
+            askedScope.current = chatScope
+            sendQuestion(
+                { scope: chatScope, question: trimmedQuestion },
+                {
+                    onSuccess: ({ requestId }) => {
+                        pendingRequestId.current = requestId
+                        for (const earlyChatEvent of earlyChatEvents.current.get(requestId) ?? []) applyChatEvent(earlyChatEvent)
+                        earlyChatEvents.current.delete(requestId)
+                    },
+                    onError: (askError) => {
+                        setErrorMessage(askError.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+                        setStreamingAnswer(null)
+                        pendingRequestId.current = null
+                    }
+                }
+            )
+        },
+        [applyChatEvent, sendQuestion]
+    )
 
-  return { messages, streaming, error, ask, clear }
-}
+    // 대화 지우기 (범위가 없거나 답을 기다리는 중이면 무시)
+    const clear = useCallback(() => {
+        const chatScope = scopeRef.current
+        if (!chatScope || pendingRequestId.current) return
+        clearChat(chatScope)
+    }, [clearChat])
 
-/** 빠른 질문 버튼 목록 (config/quick-actions.yaml). 앱이 켜져 있는 동안 한 번만 읽는다 */
-export function useQuickActions(): QuickActions | null {
-  return useQuery({ queryKey: qk.quickActions, queryFn: () => api.getQuickActions() }).data ?? null
+    // =============================== useEffect ===================================
+    // 범위가 바뀌면 받던 답변 · 오류 비움
+    useEffect(() => {
+        setStreamingAnswer(null)
+        setErrorMessage(null)
+        pendingRequestId.current = null
+    }, [scopeKey])
+
+    // 답변 조각 구독 (기다리는 질문의 조각이면 바로 처리, 아니면 requestId별로 모아 둠)
+    useEffect(
+        () =>
+            api.onChatEvent((chatEvent) => {
+                if (chatEvent.requestId === pendingRequestId.current) return applyChatEvent(chatEvent)
+                const eventsForRequest = earlyChatEvents.current.get(chatEvent.requestId) ?? []
+                eventsForRequest.push(chatEvent)
+                earlyChatEvents.current.set(chatEvent.requestId, eventsForRequest)
+            }),
+        [applyChatEvent]
+    )
+
+    return { messages, streamingAnswer, errorMessage, ask, clear }
 }
