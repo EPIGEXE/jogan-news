@@ -66,31 +66,34 @@ v3까지는 Python으로 설계했지만, 상주형 데스크톱 앱에 필요�
 │   · Tray, Notification, globalShortcut, BrowserWindow 관리              │
 │   · 트리거: 앱 시작, powerMonitor(unlock-screen/resume), 오전 8시 타이머  │
 │   · 자동 시작 설정, 중복 실행 방지, safeStorage(API 키)                   │
-│   · 작업 지시만 하고 무거운 일은 Worker에 맡김                            │
+│   · 사용자 데이터·화면용 조회는 DB에 직접, 무거운 일은 Worker에 맡김       │
 │            │ MessagePort                         ▲ IPC (contextBridge) │
 │            ▼                                     │                     │
 │  Worker (utilityProcess, 별도 Node 프로세스)       Renderer (React UI)    │
 │   · 수집기, 파이프라인, LLM 호출(Groq)            · 오늘 / 기사 / 라이브러리 │
 │   · 본문 추출, 임베딩(transformers.js)            · 아카이브 / 질문 / 설정  │
-│   · SQLite (better-sqlite3 + FTS5 + sqlite-vec)  · preload의 타입 있는 API │
+│   · 기사·브리핑 테이블 쓰기 (DB 연결은 따로)     · preload의 타입 있는 API │
 │   · 채팅 스트리밍 → Main을 거쳐 Renderer로 전달     로만 접근                 │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
 - **Worker를 분리하는 이유:** 수집, 임베딩, LLM 호출 같은 무거운 작업이 Main 프로세스를 막으면 트레이와 창이 멈춥니다. `utilityProcess`로 떼어내면 Worker가 죽어도 Main이 다시 띄울 수 있습니다.
+- **DB 접근 (2026-10-12 변경, 13.13절):** DB 파일은 하나이고 Main과 Worker가 각자 연결을 엽니다(`better-sqlite3` + Drizzle ORM, FTS5). Main은 사용자 데이터(저장·메모·태그·하이라이트·설정·대화) 쓰기와 화면용 조회를, Worker는 기사·브리핑·실행 기록 쓰기를 맡습니다. 스키마 변경은 Main이 시작할 때 적용합니다.
 - **보안:** Renderer는 `contextIsolation: true`, `nodeIntegration: false`로 실행합니다. preload에서 노출한 함수만 쓸 수 있습니다. 기사 본문은 HTML을 정제(sanitize)한 뒤에 표시합니다.
 - **데이터 위치:** `%APPDATA%\AINews\`에 둡니다(`app.getPath('userData')`). 표시 이름을 Jogan으로 바꾼 뒤에도 이 폴더를 그대로 쓰도록 main/index.ts에서 고정합니다. DB, 로그, 임베딩 모델 캐시, 백업이 여기에 저장됩니다.
 
 ### 3.1 Main 프로세스 계층
 
 ```
-  들어오는 쪽   ipc/       화면 요청 → 서비스 호출만 (영역별: digest, library, settings, diagnostics)
+  들어오는 쪽   ipc/       화면 요청 → 서비스 호출만 (영역별: digest, library, chat, settings, diagnostics, window)
               triggers/  OS 이벤트(로그인·잠금 해제·절전 복귀·8시 타이머) → 서비스 호출만
                   │
                   ▼
   서비스       services/  앱이 하는 일: BriefingService(생성 흐름), SettingsService(API 키·예산·자동 시작),
-                         ContentService(브리핑·기사·라이브러리), DiagnosticsService
-                         Electron을 import하지 않고, 바깥 기능은 services/ports.ts의 인터페이스로만 쓴다
+                         DigestService·SearchService·SourceStatsService(화면용 조회),
+                         ArticleService·TagService·HighlightService·ChatService(사용자 데이터), DiagnosticsService
+                         Electron을 import하지 않고, 바깥 기능은 services/ports.ts의 인터페이스로만,
+                         DB는 src/backend/data/repositories의 저장소로만 쓴다
                   │ 포트
                   ▼
   나가는 쪽    platform/  포트 구현: 트레이, 창, 알림, 키 보관(safeStorage), 네트워크, Worker 클라이언트,
@@ -101,7 +104,7 @@ v3까지는 Python으로 설계했지만, 상주형 데스크톱 앱에 필요�
 ```
 
 - 의존 방향: services/는 Electron과 다른 계층을 import하지 않고, ipc/·triggers/는 platform/을 직접 import하지 않으며(index.ts가 주입), platform/은 ipc/·triggers/를 import하지 않습니다.
-- 서비스는 가짜 포트로 단위 테스트합니다 (예: 오프라인이면 파이프라인을 부르지 않음, 실패하면 실패 알림).
+- 서비스는 가짜 포트로 단위 테스트합니다 (예: 오프라인이면 파이프라인을 부르지 않음, 실패하면 실패 알림). DB를 쓰는 서비스는 메모리 DB에 실제 저장소를 붙이고 Worker와 화면 알림만 가짜로 대신합니다.
 
 ## 4. 실행 시점 설계
 
@@ -518,7 +521,7 @@ GPT-OSS는 영어 중심으로 학습된 모델이라 한국어 요약 품질을
   카테고리별 상한(예: 논문 최대 5개)도 둡니다.
 - **⑥ 한국어 요약:** 상위 약 60건을 120B로 요약합니다(한국어 제목, 요약, 핵심 포인트).
 - **⑦ 최종 브리핑:** 상위 20~30건으로 오늘의 한 줄, 오늘의 흐름, 항목별 "왜 중요한가"를 작성합니다.
-- **⑧ Publish:** DB에 `digest`를 기록하고 Renderer에 새 브리핑 이벤트를 보냅니다.
+- **⑧ Publish:** DB에 `digest`를 기록하고 Renderer에 새 브리핑 이벤트를 보냅니다(이벤트는 결과를 돌려받은 Main이 보냄).
 - **환각 방지:** 원문 발췌만 입력합니다. 원문에 없는 수치나 주장은 쓰지 않도록 지시합니다.
 
 브리핑 섹션 구성 (2026-10-08 개편: 에이전트·툴링을 도구·라이브러리와 실전·응용으로 나눔):
@@ -553,7 +556,7 @@ GPT-OSS는 영어 중심으로 학습된 모델이라 한국어 요약 품질을
 
 - 검색: `items`, `paragraphs`, `notes`에 FTS5 전문 검색 인덱스를 둡니다.
 - 백업: 하루 한 번 `userData/backup/`에 DB를 복사합니다(최근 14개 보관).
-- 스키마 관리: `src/worker/db/schema.ts`의 마이그레이션 배열과 `PRAGMA user_version`으로 관리합니다.
+- 스키마 관리: `src/backend/data/schema.ts`의 Drizzle 테이블 정의가 기준입니다. 고친 뒤 `npm run db:generate`(drizzle-kit)로 `src/backend/data/migrations/`에 변경 SQL을 만들고, Main이 시작할 때 적용합니다. FTS5 색인 테이블만 직접 쓴 SQL입니다(13.13절).
 
 ## 11. 기술 스택
 
@@ -563,8 +566,8 @@ GPT-OSS는 영어 중심으로 학습된 모델이라 한국어 요약 품질을
 | 개발·빌드 도구 | `electron-vite` (개발 서버, 빠른 반영), `electron-builder` (NSIS 설치 파일) |
 | 언어 | TypeScript (strict 모드) |
 | 화면 | React + Vite + **Tailwind CSS v4** (토큰은 `tokens.css`의 `@theme`, 기본 팔레트 초기화). 라우팅·데이터 구독은 라이브러리 없이 직접 작성 |
-| 화면 ↔ Worker | preload `contextBridge` + 타입이 정의된 IPC 계약(`shared/ipc.ts`), Main ↔ Worker는 `MessagePort` |
-| DB | Node 내장 `node:sqlite` (FTS5 포함, 네이티브 모듈 빌드 불필요) + 직접 작성한 마이그레이션(`PRAGMA user_version`). 벡터 검색은 6단계에서 `sqlite-vec` |
+| 화면 ↔ Main ↔ Worker | preload `contextBridge` + 타입이 정의된 IPC 계약(`shared/ipc.ts`), Main ↔ Worker는 `MessagePort` |
+| DB | `better-sqlite3` + Drizzle ORM (FTS5 포함). 마이그레이션은 `drizzle-kit`이 생성한 SQL(`src/backend/data/migrations`). 2026-10-12에 `node:sqlite` + 직접 작성한 마이그레이션(`PRAGMA user_version`)에서 바꿈(13.13절). 벡터 검색은 6단계에서 `sqlite-vec` |
 | 수집 | Node 내장 `fetch`, `rss-parser`, `p-limit` |
 | 본문 추출 | `@mozilla/readability` + `linkedom`, PDF는 `unpdf`, HTML 정제는 `dompurify` |
 | 중복 제거 | URL 정규화 + 정규화 제목 일치 + **LLM 묶기 2회**(선별 후 원제·첫 부분으로, 요약 후 한국어 요약으로). 임베딩 묶기는 5단계에서 검토 |
@@ -591,21 +594,27 @@ ai-news/
 ├─ src/
 │  ├─ main/                 Main 프로세스 (3.1절)
 │  │  ├─ index.ts           조립만 (composition root)
-│  │  ├─ ipc/               화면 요청 입구: digest, library, settings, diagnostics
+│  │  ├─ ipc/               화면 요청 입구: digest, library, chat, settings, diagnostics, window
 │  │  ├─ triggers/          OS 이벤트 입구: briefing-triggers (앱 시작·잠금 해제·절전 복귀·8시)
-│  │  ├─ services/          ports.ts, briefing-, settings-, content-, diagnostics-service (+ 테스트)
+│  │  ├─ services/          ports.ts, briefing-, settings-, digest-, search-, source-stats-, article-, tag-,
+│  │  │                     highlight-, chat-, diagnostics-service (+ 테스트)
 │  │  ├─ platform/          tray/, window, notifier, secrets, network, autostart, netcheck,
 │  │  │                     worker-client, renderer-events, system(단축키·외부 링크)
 │  │  └─ diagnostics/       diag-log, dev-screenshot
 │  ├─ preload/
 │  │  └─ index.ts           contextBridge로 화면에 노출할 API
 │  ├─ worker/               utilityProcess
-│  │  ├─ index.ts
+│  │  ├─ index.ts           메시지 처리
+│  │  ├─ article-worker.ts  Worker 기능 구현과 조립
+│  │  ├─ services/          collect-, pipeline-, enrichment-, translation-, chat-answer-service
 │  │  ├─ collectors/        rss.ts, arxiv.ts, hfPapers.ts, hackernews.ts, reddit.ts, githubReleases.ts
 │  │  ├─ pipeline/          normalize.ts, dedup.ts, ruleFilter.ts, triage.ts, summarize.ts, digest.ts, publish.ts
 │  │  ├─ knowledge/         extract.ts, paragraphs.ts, embed.ts, search.ts, chat.ts, personalize.ts, export.ts
-│  │  ├─ llm/               client.ts (LLMClient 인터페이스), groq.ts, rateLimiter.ts, models.ts
-│  │  └─ db/                schema.ts, migrations/, repo.ts
+│  │  └─ llm/               client.ts (LLMClient 인터페이스), groq.ts, rateLimiter.ts, models.ts
+│  ├─ backend/              Main·Worker가 같이 쓰는 코드 (화면은 쓰지 않음)
+│  │  ├─ data/              DB 계층: schema.ts, client.ts, migrations/, repositories/, testing.ts
+│  │  ├─ domain/            두 프로세스가 같이 쓰는 규칙: app-settings.ts, usage.ts, translation.ts
+│  │  └─ config/            설정 파일 읽기: index.ts, pricing.ts
 │  ├─ renderer/             React 앱
 │  │  ├─ app/               App, layout(NavRail·TitleBar), global, styles(tokens.css·app.css·fonts.ts)
 │  │  ├─ screens/           today, library, archive, ask, sources, settings, diagnostics (page.tsx)
@@ -739,6 +748,16 @@ ai-news/
 - 화면 코드를 `app/ · screens/ · domains/ · common/`(화면 단위 + 공용 도메인)으로 옮기고 import를 `@/` 별칭으로 바꿨습니다(6.6절 표).
 - 화면 데이터를 TanStack Query 캐시로 옮겼습니다. 이전에는 같은 기사를 오늘 목록·검색 결과·상세가 각자 들고 `onPatch` 콜백으로 맞췄는데, 이제 `patchArticle`이 모든 캐시를 한꺼번에 고치고, Main 알림(`item-updated`, `digest-updated`)은 `QueryProvider` 한 곳에서 무효화로 잇습니다. 전역 스토어는 필요가 없어 넣지 않았습니다.
 
+### 13.13 프로세스 역할 분리와 DB 계층 개편 (2026-10-12)
+
+- **이전 구조:** Worker만 DB를 열었고, SQL은 모두 `src/worker/db/repo.ts` 한 파일에 직접 썼습니다. 화면의 조회와 저장·메모·태그·하이라이트 같은 짧은 쓰기도 전부 Main → Worker 호출을 거쳤습니다. 스키마는 마이그레이션 배열과 `PRAGMA user_version`으로 관리했습니다.
+- **프로세스를 역할로 나눔:** Worker는 기사를 만들어 오는 일(수집·브리핑 생성·본문 추출·태그 추천·번역·답변 생성)만 하고, Main이 DB를 직접 열어 사용자 데이터와 화면용 조회를 맡습니다. Worker를 따로 둔 이유는 오래 걸리는 일이 Main을 막지 않게 하는 것인데, 사용자 데이터 쓰기와 조회는 짧은 DB 작업이라 Worker를 거칠 이유가 없습니다. Main이 직접 처리하면 화면 요청이 Worker의 응답을 기다리지 않습니다. Main ↔ Worker 규약은 `runPipeline`·`collectOnly`·`enrichItem`·`translateItem`·`answerQuestion` 다섯 호출로 줄었습니다. Worker는 기사 갱신·질문 이벤트를 보내지 않고 생성 진행 상황과 답변 조각만 보내며, 추천 태그 붙이기·보강 완료 표시·질문과 답변 저장·화면 알림은 Main이 합니다.
+- **직접 쓴 SQL 대신 ORM:** Drizzle ORM + `better-sqlite3`로 바꿨습니다. 테이블 정의가 `src/backend/data/schema.ts` 한 곳에 있고, 쿼리 결과의 타입이 그 정의에서 나오므로 컬럼 이름과 타입을 SQL 문자열과 TypeScript 타입 양쪽에 따로 적어 맞출 필요가 없습니다. 스키마 변경 SQL은 `npm run db:generate`(drizzle-kit)가 `src/backend/data/migrations`에 만들고, Main이 시작할 때(Worker를 띄우기 전) 적용합니다. FTS5 가상 테이블(`search_fts`)은 Drizzle 스키마로 표현할 수 없어 직접 쓴 SQL 파일로 둡니다. 예전 `PRAGMA user_version` 마이그레이션은 없앴습니다.
+- **repository와 service 분리:** controller(Main `ipc/`, Worker `index.ts`) → service → repository로 나눴습니다. 저장소(`src/backend/data/repositories/*-repository.ts`, 11개)는 읽고 쓰기만 하고, 업무 규칙과 트랜잭션 경계는 서비스(`src/main/services`, `src/worker/services`)에 둡니다. 저장소를 두 프로세스가 같이 쓰므로 규칙이 저장소에 섞이면 어느 프로세스의 규칙인지 흐려지고, 규칙을 서비스에 모으면 메모리 DB에 실제 저장소를 붙여 서비스 단위로 테스트할 수 있습니다.
+- **테이블마다 쓰는 프로세스는 하나:** Worker는 `items`·`contents`·`digests`·`digest_entries`·`runs`·`llm_usage`·`source_fetches`를, Main은 `saves`·`notes`·`reads`·`tags`·`item_tags`·`highlights`·`settings`·`chats`·`chat_messages`를 씁니다. 한 파일에 연결이 둘이지만(WAL, 잠금 대기 5초) 같은 행을 두 프로세스가 서로 고치는 일이 없어 덮어쓰기 충돌이 생기지 않습니다. `search_fts`만 양쪽이 쓰는데, 원본 테이블에서 기사 단위로 다시 만드는 파생 색인이라 어느 쪽이 갱신해도 결과가 같습니다.
+- **함께 옮긴 것:** 두 프로세스가 같은 규칙으로 판단해야 하는 것(사용자 설정 읽기, 사용액·절약 모드 판정, 번역 대상 판정)은 `src/backend/domain`로, 설정 파일 읽기는 `src/backend/config`로 옮겼습니다.
+- **바뀌지 않은 것:** 화면과 화면 API(`src/shared/ipc.ts`의 `JoganApi`, DTO)는 그대로입니다. 지금 구조는 docs/README.md 2장·3.6절에 있습니다.
+
 ## 14. 리스크와 대응
 
 | 리스크 | 대응 |
@@ -750,7 +769,7 @@ ai-news/
 | 구조화 출력과 스트리밍을 동시에 못 씀 | 선별·요약은 JSON, 채팅은 스트리밍 텍스트로 역할을 나눔 |
 | 로그인 직후 네트워크 미연결 | 1분 지연 + 최대 5분 재시도, 이후 다음 이벤트 때 재시도 |
 | Worker 프로세스 비정상 종료 | Main이 감지해서 다시 띄우고, 진행 중이던 작업은 실행 기록을 보고 이어서 처리 |
-| 네이티브 모듈 빌드 문제 | `node:sqlite`를 써서 네이티브 모듈 자체를 없앰 |
+| 네이티브 모듈 빌드 문제 | DB 드라이버 `better-sqlite3`가 네이티브 모듈임. 설치 파일을 만들 때 다시 빌드하지 않게 하고(`electron-builder.yml`의 `npmRebuild: false`), `.node` 파일은 asar 밖에 둠(`asarUnpack`) |
 | 사내 네트워크 (프록시, SSL 검사) | 수집과 API 호출에 시스템 프록시·인증서를 따르는 Electron `net.fetch` 사용을 검토. 0단계에서 실제 호출로 확인 |
 | PC 정책 (시작 프로그램 등록, 알림 차단) | 알림이 막히면 트레이 아이콘 표시로 대체. 0단계에서 확인 |
 | 본문 추출 실패 (유료 기사, JS로 그리는 페이지) | 요약과 리드 문단만 저장하고 "본문 없음"으로 표시. 사용자가 본문을 붙여넣을 수 있게 함 |

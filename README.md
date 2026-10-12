@@ -43,8 +43,10 @@ npm run dev            # 화면 수정이 바로 반영됨
 ```sh
 npm run typecheck
 npm test
+npm run db:generate    # src/backend/data/schema.ts를 고친 뒤 스키마 변경 SQL 만들기
 ```
 
+- DB 테이블 정의는 `src/backend/data/schema.ts`에 있습니다. 고친 뒤 `npm run db:generate`로 `src/backend/data/migrations/`에 변경 SQL을 만들면, 앱(Main)이 시작할 때 적용합니다.
 - 화면 코드는 `src/renderer/src/`의 `app/`(틀·전역) · `screens/`(화면별 `page.tsx`) · `domains/`(기사·브리핑·하이라이트·질문) · `common/`(공용 부품)으로 나누고, import는 `@/` 별칭으로 씁니다.
 - 스타일은 Tailwind v4. 색·크기는 `src/renderer/src/app/styles/tokens.css`(@theme)에 있는 토큰 유틸리티만 씁니다(`bg-paper`, `text-ink-muted` …). 임의 값(`bg-[#fff]`)이나 색을 직접 쓰지 않습니다.
 - 화면 확인용 스크린샷(개발 모드만): `AINEWS_USER_DATA=<폴더> AINEWS_SCREENSHOT=<파일.png> AINEWS_ROUTE=today npx electron .` — `AINEWS_SIZE=1920x1050`(창 크기), `AINEWS_KEYS=Enter,j,wheel:800,click:X:Y,move:X:Y,drag:X1:Y:X2`(키·마우스 동작)를 더할 수 있습니다.

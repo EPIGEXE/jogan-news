@@ -12,7 +12,7 @@
 // - DB나 네트워크를 쓰지 않는 순수 함수 (테스트로 동작을 고정)
 // ============================================================================
 import type { Category, Section } from '@shared/types'
-import type { Interest } from '../config'
+import type { Interest } from '@config/index'
 
 // 규칙 점수를 매길 기사 하나의 정보
 export interface ScoreInput {

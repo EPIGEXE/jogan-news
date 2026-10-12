@@ -8,6 +8,7 @@
 // - 성공: 트레이를 "새 브리핑"으로, 화면에 새 브리핑 게시 알림, 오늘의 한 줄로 Windows 알림
 // - 실패: 트레이를 "실패"로, 화면에 실패 이유 전달, 실패 알림 (예외를 밖으로 던지지 않음)
 // - 오늘 브리핑을 만들어야 하는지는 판단하지 않음 (부르기 전에 triggers/가 확인)
+// - 낮 동안의 미리 수집 요청을 Worker에 전달 (언제 수집할지는 triggers/의 타이머가 정함)
 // ============================================================================
 import type { TriggerReason } from '@shared/schedule'
 import type { BriefingNotifier, LogFn, NetworkPort, RendererEvents, StatusPort, WorkerRpc } from './ports'
@@ -34,6 +35,12 @@ export class BriefingService {
     // 지금 브리핑을 만드는 중인지 (네트워크 연결을 기다리는 동안도 포함)
     isRunning(): boolean {
         return this.isGenerating
+    }
+
+    // 낮 동안 미리 수집 (LLM 없음) → 새로 쌓인 글 수
+    // 브리핑을 만드는 중이거나 이미 수집 중이면 Worker가 건너뛰고 skipped: true
+    collectOnly(): Promise<{ collected: number; skipped: boolean }> {
+        return this.deps.worker.call('collectOnly')
     }
 
     /**

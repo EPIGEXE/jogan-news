@@ -60,7 +60,7 @@ export interface RendererEvents {
     digestUpdated(): void // 새 브리핑 게시
     itemUpdated(itemId: number): void // 기사 내용 변경 (보강 · 번역 완료)
     navigate(route: Route): void // 화면 이동 요청
-    chatEvent(chatEvent: ChatEvent): void // AI 답변 조각
+    chatEvent(chatEvent: ChatEvent): void // AI 답변 조각 · 완료 · 오류
 }
 
 // API 키 보관

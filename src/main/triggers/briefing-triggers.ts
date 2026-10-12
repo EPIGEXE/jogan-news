@@ -97,7 +97,7 @@ export class BriefingTriggers {
         if (this.isStopped) return false
 
         // 마지막으로 브리핑을 만든 날짜 조회
-        // 조회에 실패하면(Worker 종료 등) 오늘 것이 있는지 알 수 없으므로 건너뜀
+        // 조회에 실패하면(DB 오류 등) 오늘 것이 있는지 알 수 없으므로 건너뜀
         const now = new Date() // 판단 기준 시각 (조회를 기다리기 전의 시각)
         let lastDigestDate: string | null // 마지막 생성일 'YYYY-MM-DD' (없으면 null)
         try {

@@ -6,7 +6,7 @@
 // - 바깥 사이트에 보내는 요청의 공통 규칙: 같은 User-Agent, 요청 한 번에 15초 제한, 2xx가 아니면 오류
 // - 글이 기준 시각 이후에 나왔는지 판단 (날짜가 없거나 읽을 수 없으면 받는 쪽으로)
 // ============================================================================
-import type { ItemKind } from '../config'
+import type { ItemKind } from '@config/index'
 
 // 수집기가 돌려주는 글 한 건
 export interface RawItem {

@@ -13,15 +13,8 @@
 import Groq, { BadRequestError } from 'groq-sdk'
 import type { ChatCompletionCreateParamsNonStreaming, ChatCompletionCreateParamsStreaming } from 'groq-sdk/resources/chat/completions'
 import type { z } from 'zod'
-import type { TokenUsage } from './pricing'
-
-// 역할 하나에 쓸 모델 설정 (config/models.yaml의 한 항목)
-export interface ModelSpec {
-    model: string // Groq 모델 ID
-    // 추론 강도. GPT-OSS: low | medium | high, Qwen: none | default | low | medium | high (없으면 추론 옵션을 보내지 않음)
-    reasoningEffort?: 'none' | 'default' | 'low' | 'medium' | 'high'
-    maxCompletionTokens: number // 출력 토큰 상한
-}
+import type { ModelSpec } from '@config/index'
+import type { TokenUsage } from '@config/pricing'
 
 // JSON 호출 한 번의 결과
 export interface JsonCallResult<T> {

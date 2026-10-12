@@ -12,6 +12,11 @@ files:
 extraResources:
   - from: config
     to: config
+  # DB 스키마 변경 SQL (Main이 시작할 때 적용)
+  - from: src/backend/data/migrations
+    to: migrations
+# better-sqlite3는 모든 플랫폼용 바이너리가 패키지에 들어 있어 다시 빌드할 필요가 없다
+npmRebuild: false
 asarUnpack:
   - '**/*.node'
 win:

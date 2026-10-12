@@ -13,8 +13,16 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { parse } from 'yaml'
 import { z } from 'zod'
-import { loadPricing, type Pricing } from './llm/pricing'
-import type { ModelSpec } from './llm/groq'
+import { loadPricing, type Pricing } from './pricing'
+
+// 역할 하나에 쓸 모델 설정 (config/models.yaml의 한 항목)
+export interface ModelSpec {
+    model: string // Groq 모델 ID
+    // 추론 강도. GPT-OSS: low | medium | high, Qwen: none | default | low | medium | high (없으면 추론 옵션을 보내지 않음)
+    reasoningEffort?: 'none' | 'default' | 'low' | 'medium' | 'high'
+    maxCompletionTokens: number // 출력 토큰 상한
+}
+
 
 // 글의 종류 (브리핑 분류의 참고값. 최종 분류는 LLM이 정함)
 const ItemKindSchema = z.enum(['news', 'paper', 'community', 'release'])
@@ -128,7 +136,7 @@ function readYamlFile(yamlFilePath: string): unknown {
 /**
  * 설정 폴더의 파일을 모두 읽기
  *
- * - Worker 서비스가 만들어질 때 한 번 읽음 (그 뒤에 파일을 고쳐도 다시 읽지 않음)
+ * - Main과 Worker가 각자 시작할 때 한 번씩 읽음 (그 뒤에 파일을 고쳐도 다시 읽지 않음)
  *
  * @param {string} configDir - 설정 파일이 있는 폴더 (config/)
  * @returns {AppConfig} 읽어 들인 설정 (파일이 없거나 형식이 맞지 않으면 오류)

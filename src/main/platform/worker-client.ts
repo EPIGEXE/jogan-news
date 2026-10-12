@@ -5,7 +5,7 @@
 // - Worker(utilityProcess)를 띄우고 시작에 필요한 값(DB 경로 · 설정 폴더 · API 키) 전달
 // - Worker의 기능을 호출하고 결과를 기다림 (요청마다 번호를 붙여 응답과 짝지음)
 // - Worker가 준비됐다고 알리기 전의 호출: 준비될 때까지 기다렸다가 전송
-// - Worker가 보내는 알림(생성 진행 · 기사 변경 · 답변 · 로그)을 받아 전달
+// - Worker가 보내는 알림(생성 진행 · 답변 조각 · 로그)을 받아 전달
 // - Worker가 죽으면 응답을 기다리던 호출은 모두 실패 처리하고 3초 뒤 다시 띄움 (DESIGN.md 3절)
 // - 다시 뜨기를 기다리는 동안 들어온 호출: 새 Worker가 준비되면 전송
 // - 준비도 못 하고 연달아 3번 죽으면 다시 띄우기를 그만두고 호출을 바로 실패로 답함 (DB · 설정 오류처럼 다시 띄워도 안 되는 경우)
@@ -14,7 +14,7 @@
 // ============================================================================
 import { join } from 'node:path'
 import { app, utilityProcess, type UtilityProcess } from 'electron'
-import type { ChatEvent, RunProgress } from '@shared/types'
+import type { RunProgress } from '@shared/types'
 import type { MainToWorker, WorkerMethod, WorkerParams, WorkerResult, WorkerToMain } from '@shared/worker-protocol'
 import type { LogFn, WorkerRpc } from '../services/ports'
 
@@ -83,8 +83,7 @@ export class WorkerClient implements WorkerRpc {
             configDir: string // 수집 소스 · 프롬프트 등 설정 파일이 있는 폴더
             getApiKey(): string | null // Worker를 띄울 때마다 읽는 API 키
             onProgress(runProgress: RunProgress): void // 브리핑 생성 진행 상황을 받을 함수
-            onItemUpdated(itemId: number): void // 기사 정보가 바뀌었을 때 부를 함수
-            onChatEvent(chatEvent: ChatEvent): void // AI 답변 스트리밍 알림을 받을 함수
+            onChatDelta(requestId: string, deltaText: string): void // AI 답변 조각을 받을 함수 (requestId는 그 질문의 요청 번호)
             log: LogFn // 진단 기록
         }
     ) {}
@@ -231,13 +230,9 @@ export class WorkerClient implements WorkerRpc {
                 // 브리핑 생성 진행 상황
                 this.options.onProgress(workerMessage.progress)
                 break
-            case 'item-updated':
-                // 기사 정보 변경 (본문 보강 · 번역 완료 등)
-                this.options.onItemUpdated(workerMessage.itemId)
-                break
-            case 'chat':
-                // AI 답변 스트리밍
-                this.options.onChatEvent(workerMessage.event)
+            case 'chat-delta':
+                // AI 답변 조각 (완료 · 실패는 answerQuestion 호출의 응답으로 옴)
+                this.options.onChatDelta(workerMessage.requestId, workerMessage.text)
                 break
             case 'log':
                 // 경고 · 오류는 진단 기록에, 일반 로그는 개발 중에만 콘솔에 남김

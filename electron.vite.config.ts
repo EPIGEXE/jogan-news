@@ -6,7 +6,8 @@ import tailwindcss from '@tailwindcss/vite'
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
-    resolve: { alias: { '@shared': resolve('src/shared') } },
+    // @data = Main과 Worker가 같이 쓰는 DB 계층 (스키마 · 저장소), @config = 설정 파일(YAML · 프롬프트) 읽기, @domain = 두 프로세스가 같이 쓰는 업무 규칙
+    resolve: { alias: { '@shared': resolve('src/shared'), '@data': resolve('src/backend/data'), '@config': resolve('src/backend/config'), '@domain': resolve('src/backend/domain') } },
     // Worker(utilityProcess)는 Main과 같은 빌드에서 별도 진입점으로 묶는다 → out/main/worker.js
     build: { rollupOptions: { input: { index: resolve('src/main/index.ts'), worker: resolve('src/worker/index.ts') } } }
   },

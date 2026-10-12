@@ -9,7 +9,6 @@
 // ============================================================================
 import { dateKey, DEFAULT_SCHEDULE } from '@shared/schedule'
 import type { DiagEvent, NetCheckResult, TriggerState } from '@shared/ipc'
-import type { ContentService } from './content-service'
 
 export interface DiagnosticsDeps {
     listEvents(): DiagEvent[] // 지금까지 쌓인 진단 기록
@@ -17,7 +16,7 @@ export interface DiagnosticsDeps {
     runNetworkChecks(): Promise<NetCheckResult[]> // 네트워크 점검 실행
     nextTimerAt(): Date | null // 다음 오전 타이머가 울릴 시각 (아직 없으면 null)
     isPackaged: boolean // 설치판으로 실행 중인지
-    content: ContentService // 마지막 브리핑 날짜 조회용
+    getLastDigestDate(): string | null // 마지막으로 브리핑을 만든 날짜 (없으면 null)
 }
 
 /**
@@ -42,14 +41,14 @@ export class DiagnosticsService {
     }
 
     // 브리핑 생성 트리거의 지금 상태 조회 ("왜 오늘 브리핑이 안 만들어졌는지" 확인용 값 모음)
-    async triggerState(): Promise<TriggerState> {
+    triggerState(): TriggerState {
         // 다음 오전 타이머 시각 (트리거를 시작하기 전이면 null)
         const nextTimerDate = this.deps.nextTimerAt()
 
         // 오늘 날짜와 마지막 생성일 (둘이 같으면 오늘은 더 만들지 않음), 타이머 시각, 생성 시각 규칙
         return {
             today: dateKey(new Date()),
-            lastDigestDate: await this.deps.content.getLastDigestDate(),
+            lastDigestDate: this.deps.getLastDigestDate(),
             nextTimerAt: nextTimerDate ? nextTimerDate.toISOString() : null,
             morningHour: DEFAULT_SCHEDULE.morningHour,
             dayStartHour: DEFAULT_SCHEDULE.dayStartHour,

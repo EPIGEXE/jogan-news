@@ -12,7 +12,7 @@
 // ============================================================================
 import Parser from 'rss-parser'
 import { z } from 'zod'
-import type { Interest, SourceConfig } from '../config'
+import type { Interest, SourceConfig } from '@config/index'
 import { cleanLines, cleanText } from '../pipeline/normalize'
 import { fetchJson, fetchText, isPublishedSince, type RawItem } from './types'
 

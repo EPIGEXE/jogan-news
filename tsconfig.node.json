@@ -11,11 +11,15 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "paths": { "@shared/*": ["./src/shared/*"] }
+    "paths": { "@shared/*": ["./src/shared/*"], "@data/*": ["./src/backend/data/*"], "@config/*": ["./src/backend/config/*"], "@domain/*": ["./src/backend/domain/*"] }
   },
   "include": [
     "electron.vite.config.ts",
     "vitest.config.ts",
+    "drizzle.config.ts",
+    "src/backend/data/**/*",
+    "src/backend/config/**/*",
+    "src/backend/domain/**/*",
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
