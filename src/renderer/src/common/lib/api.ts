@@ -2,6 +2,6 @@
 // Main 호출 창구
 //
 // [역할]
-// - preload가 화면에 열어 준 API를 한 이름으로 내보냄 (화면 코드는 window.ainews 대신 이것을 사용)
+// - preload가 화면에 열어 준 API를 한 이름으로 내보냄 (화면 코드는 window.jogan 대신 이것을 사용)
 // ============================================================================
-export const api = window.ainews
+export const api = window.jogan

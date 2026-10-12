@@ -38,13 +38,13 @@ export function useDiagEventsQuery(): DiagEvent[] {
     // 새 이벤트 구독 (도착하면 캐시의 목록 끝에 추가)
     useEffect(
         () =>
-            api.onEvent((diagEvent) =>
+            api.onDiagEvent((diagEvent) =>
                 queryClient.setQueryData<DiagEvent[]>(queryKeys.diagEvents, (cachedDiagEvents) => [...(cachedDiagEvents ?? []), diagEvent])
             ),
         [queryClient]
     )
 
-    return useQuery({ queryKey: queryKeys.diagEvents, queryFn: () => api.getEvents(), staleTime: 0 }).data ?? EMPTY_DIAG_EVENTS
+    return useQuery({ queryKey: queryKeys.diagEvents, queryFn: () => api.getDiagEvents(), staleTime: 0 }).data ?? EMPTY_DIAG_EVENTS
 }
 
 /**

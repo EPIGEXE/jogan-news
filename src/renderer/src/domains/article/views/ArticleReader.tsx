@@ -331,7 +331,7 @@ export function ArticleReader({ article, onBack, backLabel, previousArticle, nex
                             <div ref={bodyBox}>
                                 <ArticleBody
                                     paragraphs={itemDetail?.paragraphs ?? null}
-                                    fullText={itemDetail?.fullText ?? false}
+                                    fullText={itemDetail?.hasFullText ?? false}
                                     paragraphsKo={itemDetail?.paragraphsKo}
                                     bodyMode={bodyMode}
                                     focusedParagraph={focusedParagraph?.paragraphNumber ?? null}

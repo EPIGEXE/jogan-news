@@ -1,14 +1,22 @@
+// ============================================================================
+// 점수 계산과 브리핑 기사 선정 테스트
+//
+// [역할]
+// - 선정 규칙 확인 (점수 순 · 낮은 관련도 제외 · 분류별 상한 · 도구와 실전의 최소 몫 · 상위 5개 top 섹션)
+// - 본문이 부족한 기사를 빼고 다음 후보로 채우는 동작 확인
+// - 같은 소식을 대표 하나로 합치는 동작과 키워드 · 참여도 점수 확인
+// ============================================================================
 import { describe, expect, it } from 'vitest'
-import { applyClusters, engagementScore, fillWithContent, keywordScore, selectEntries, type Triaged } from './select'
+import { applyClusters, engagementScore, fillWithContent, keywordScore, selectEntries, type TriagedItem } from './select'
 
-const t = (id: number, over: Partial<Triaged> = {}): Triaged => ({
+const t = (id: number, over: Partial<TriagedItem> = {}): TriagedItem => ({
   id,
   category: 'model_release',
   relevance: 0.9,
   importance: 3,
   ruleScore: 1,
   engagement: 0,
-  otherSources: 0,
+  otherSourceCount: 0,
   ...over
 })
 
@@ -81,14 +89,14 @@ describe('applyClusters', () => {
   it('LLM이 고른 primary를 대표로 쓴다', () => {
     const r = applyClusters([t(1, { importance: 5 }), t(2, { importance: 3 })], [{ ids: [1, 2], primary: 2 }])
     expect(r.items).toHaveLength(1)
-    expect(r.items[0]).toMatchObject({ id: 2, importance: 5, otherSources: 1 })
+    expect(r.items[0]).toMatchObject({ id: 2, importance: 5, otherSourceCount: 1 })
   })
 
   it('같은 소식 묶음을 점수가 가장 높은 대표 하나로 합치고 출처 수와 참여도를 물려준다', () => {
-    const items = [t(1, { importance: 5 }), t(2, { importance: 3, engagement: 900 }), t(3, { otherSources: 1 }), t(4)]
+    const items = [t(1, { importance: 5 }), t(2, { importance: 3, engagement: 900 }), t(3, { otherSourceCount: 1 }), t(4)]
     const r = applyClusters(items, [{ ids: [1, 2, 3] }])
     expect(r.items.map((x) => x.id)).toEqual([1, 4])
-    expect(r.items[0]).toMatchObject({ id: 1, otherSources: 3, engagement: 900, importance: 5 })
+    expect(r.items[0]).toMatchObject({ id: 1, otherSourceCount: 3, engagement: 900, importance: 5 })
     expect(r.merges.get(1)).toEqual([2, 3])
   })
 

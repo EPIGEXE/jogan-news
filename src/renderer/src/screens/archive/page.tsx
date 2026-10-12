@@ -177,7 +177,8 @@ export function ArchivePage() {
                                         <span className="flex flex-wrap gap-x-3 gap-y-1 text-meta font-medium tracking-dateline text-ink-muted tabular-nums">
                                             <span>{formatKoreanDate(digestSummary.date)}</span>
                                             <span>
-                                                {digestSummary.entries}건{digestSummary.saved ? ` · 저장 ${digestSummary.saved}` : ''}
+                                                {digestSummary.entryCount}건
+                                                {digestSummary.savedCount ? ` · 저장 ${digestSummary.savedCount}` : ''}
                                             </span>
                                         </span>
                                         <span className="font-display text-title font-semibold text-ink">{digestSummary.headline}</span>

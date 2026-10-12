@@ -59,7 +59,7 @@ export function useDigest(): DigestState {
     // Main의 진행 알림 구독 (진행 단계 · 만드는 중 여부 · 오류 갱신)
     useEffect(
         () =>
-            api.onProgress((runProgress) => {
+            api.onRunProgress((runProgress) => {
                 setLatestRunProgress(runProgress)
                 setRunning(queryClient, runProgress.stage !== 'done' && runProgress.stage !== 'error')
                 if (runProgress.stage === 'done') setRunError(null)

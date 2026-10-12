@@ -1,8 +1,23 @@
-// SQLite 스키마. PRAGMA user_version으로 버전을 관리하고, 마이그레이션은 앞에서부터 차례로 적용한다.
-// 이미 배포된 마이그레이션은 고치지 말고 새 항목을 뒤에 추가한다.
+// ============================================================================
+// DB 스키마
+//
+// [역할]
+// - SQLite 테이블 · 색인을 만들고 바꾸는 마이그레이션을 버전 순서대로 정의
+// - 버전은 PRAGMA user_version으로 관리하고, 아직 적용하지 않은 마이그레이션만 앞에서부터 차례로 적용 (적용은 db.ts)
+// - 이미 배포된 마이그레이션은 고치지 않고 새 항목을 뒤에 추가
+// ============================================================================
 
+/**
+ * 버전 순서대로 적용하는 마이그레이션 SQL (배열의 첫 항목이 버전 1)
+ */
 export const MIGRATIONS: string[] = [
-  /* 1: 1단계 MVP */ `
+    // 1: 1단계 MVP의 기본 테이블
+    // - items: 수집한 기사 (원본 정보, 중복 판정용 url_key · title_norm, 참여도, 다른 출처, AI 선별 결과, 한국어 요약)
+    // - contents: 기사 본문 문단
+    // - digests · digest_entries: 날짜마다 하나인 브리핑과 그 브리핑에 실린 기사 (순위 · 섹션)
+    // - saves · notes · reads: 저장 · 메모 · 읽음 (기사마다 하나)
+    // - runs: 브리핑 생성 실행 기록, llm_usage: LLM 호출별 토큰 · 걸린 시간 · 비용, settings: 사용자 설정
+    `
   CREATE TABLE items (
     id INTEGER PRIMARY KEY,
     url_key TEXT NOT NULL UNIQUE,
@@ -105,13 +120,19 @@ export const MIGRATIONS: string[] = [
     value TEXT NOT NULL
   );
   `,
-  /* 2: 같은 소식 묶기 — 대표 기사가 아닌 항목은 merged_into에 대표 id를 둔다 */ `
+    // 2: 같은 소식 묶기 (대표 기사가 아닌 항목은 merged_into에 대표 id를 둠)
+    `
   ALTER TABLE items ADD COLUMN merged_into INTEGER REFERENCES items(id);
   `,
-  /* 3: "왜 중요한가"를 기사별 요약 단계에서 함께 만든다 */ `
+    // 3: 기사별 "왜 중요한가" 열 추가 (기사별 요약 단계에서 함께 만듦)
+    `
   ALTER TABLE items ADD COLUMN why_ko TEXT;
   `,
-  /* 4: 3단계 — 태그, 전문 검색 */ `
+    // 4: 3단계 (태그, 전문 검색)
+    // - tags · item_tags: 태그와 기사-태그 연결 (태그 이름은 대소문자를 가리지 않고 고유)
+    // - saves.enriched_at: 저장 후 본문 추출 · 태그 추천을 마친 시각
+    // - search_fts: 전문 검색 색인 (trigram), 만들면서 이미 있는 기사를 색인에 채움
+    `
   CREATE TABLE tags (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE COLLATE NOCASE
@@ -137,7 +158,10 @@ export const MIGRATIONS: string[] = [
     LEFT JOIN contents c ON c.item_id = i.id
     LEFT JOIN notes n ON n.item_id = i.id;
   `,
-  /* 5: 4단계 — AI 질문 대화. scope_key: 'item:<기사 id>' 또는 'digest:<날짜>' */ `
+    // 5: 4단계 (AI 질문 대화)
+    // - chats: 범위마다 대화 하나 (scope_key: 'item:<기사 id>' 또는 'digest:<날짜>')
+    // - chat_messages: 대화의 메시지 (대화를 지우면 함께 삭제)
+    `
   CREATE TABLE chats (
     id INTEGER PRIMARY KEY,
     scope_key TEXT NOT NULL UNIQUE,
@@ -155,14 +179,20 @@ export const MIGRATIONS: string[] = [
   );
   CREATE INDEX chat_messages_chat ON chat_messages(chat_id, id);
   `,
-  /* 6: 본문 문단별 한국어 번역, '에이전트·툴링' 분류를 '도구·라이브러리'와 '실전·응용'으로 나눔 */ `
+    // 6: 본문 문단별 한국어 번역, 분류 개편
+    // - contents에 번역 · 번역한 시각 · 번역 모델 열 추가
+    // - '에이전트·툴링' 분류를 '도구·라이브러리'와 '실전·응용'으로 나눔 (기존 기사와 브리핑 섹션은 tools로 옮김)
+    `
   ALTER TABLE contents ADD COLUMN paragraphs_ko TEXT;   -- JSON 배열, paragraphs와 같은 길이. 번역하지 않은 문단은 null
   ALTER TABLE contents ADD COLUMN translated_at TEXT;
   ALTER TABLE contents ADD COLUMN translate_model TEXT;
   UPDATE items SET triage_category = 'tools' WHERE triage_category = 'agent_tooling';
   UPDATE digest_entries SET section = 'tools' WHERE section = 'agent_tooling';
   `,
-  /* 7: 하이라이트, 지난 브리핑 소식의 후속 보도 표시 */ `
+    // 7: 하이라이트, 지난 브리핑 소식의 후속 보도 표시
+    // - highlights: 기사 문단에 그은 하이라이트 (그은 판 · 글자 위치 · 그은 글자 · 메모)
+    // - items.follow_up_of: 지난 7일 브리핑 기사의 후속 소식이면 그 기사
+    `
   CREATE TABLE highlights (
     id INTEGER PRIMARY KEY,
     item_id INTEGER NOT NULL REFERENCES items(id),
@@ -177,7 +207,10 @@ export const MIGRATIONS: string[] = [
   CREATE INDEX highlights_item ON highlights(item_id, paragraph);
   ALTER TABLE items ADD COLUMN follow_up_of INTEGER REFERENCES items(id);  -- 지난 7일 브리핑 기사의 후속 소식이면 그 기사
   `,
-  /* 8: 출처별 수집 기록 (출처 페이지의 상태·실패 기록). 90일보다 오래된 기록은 지운다 */ `
+    // 8: 출처별 수집 기록 (출처 페이지의 상태 · 실패 기록)
+    // - source_fetches: 출처 하나를 수집한 결과 한 번 (받은 글 수 · 처음 본 글 수 · 오류)
+    // - 90일보다 오래된 기록은 지움
+    `
   CREATE TABLE source_fetches (
     id INTEGER PRIMARY KEY,
     source_id TEXT NOT NULL,

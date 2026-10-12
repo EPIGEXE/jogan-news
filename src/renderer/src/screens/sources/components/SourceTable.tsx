@@ -45,10 +45,10 @@ function SourceStatus({ source }: { source: SourceStatDTO }) {
           : lastFetch.ok
             ? [
                   'bg-ink-secondary',
-                  `정상 · ${formatElapsed(lastFetch.at)}`,
-                  `마지막 수집 ${formatShortDate(lastFetch.at)} ${formatTime(lastFetch.at)}`
+                  `정상 · ${formatElapsed(lastFetch.fetchedAt)}`,
+                  `마지막 수집 ${formatShortDate(lastFetch.fetchedAt)} ${formatTime(lastFetch.fetchedAt)}`
               ]
-            : ['bg-danger', `실패 · ${formatElapsed(lastFetch.at)}`, lastFetch.error ?? '']
+            : ['bg-danger', `실패 · ${formatElapsed(lastFetch.fetchedAt)}`, lastFetch.error ?? '']
     return (
         <span className="flex flex-col gap-0.5" title={statusTitle}>
             <span className="flex items-center gap-1.5 whitespace-nowrap">
@@ -65,12 +65,12 @@ function FetchLine({ sourceFetch }: { sourceFetch: SourceFetchDTO }) {
     return (
         <li className="flex flex-wrap gap-x-3 tabular-nums">
             <span className="text-ink-muted">
-                {formatShortDate(sourceFetch.at)} {formatTime(sourceFetch.at)}
+                {formatShortDate(sourceFetch.fetchedAt)} {formatTime(sourceFetch.fetchedAt)}
             </span>
             <span>{sourceFetch.reason === 'collect' ? '미리 수집' : '브리핑'}</span>
             {sourceFetch.ok ? (
                 <span>
-                    받은 글 {sourceFetch.fetched} · 새 글 {sourceFetch.newItems}
+                    받은 글 {sourceFetch.fetchedCount} · 새 글 {sourceFetch.newItems}
                 </span>
             ) : (
                 <span className="text-danger">실패 — {sourceFetch.error}</span>
@@ -99,7 +99,7 @@ function SourceDetail({ source }: { source: SourceStatDTO }) {
                 {source.recentFetches.length ? (
                     <ul className="m-0 flex list-none flex-col gap-0.5 p-0 text-meta">
                         {source.recentFetches.map((sourceFetch) => (
-                            <FetchLine key={sourceFetch.at + sourceFetch.reason} sourceFetch={sourceFetch} />
+                            <FetchLine key={sourceFetch.fetchedAt + sourceFetch.reason} sourceFetch={sourceFetch} />
                         ))}
                     </ul>
                 ) : (

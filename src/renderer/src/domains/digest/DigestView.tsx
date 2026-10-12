@@ -8,7 +8,7 @@
 // - 오늘 화면과 아카이브가 함께 사용
 // ============================================================================
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { CATEGORIES, CATEGORY_SHORT, SECTION_LABEL, SECTION_ORDER, type Category, type DigestDTO } from '@shared/types'
+import { CATEGORIES, CATEGORY_SHORT_LABEL, SECTION_LABEL, SECTION_ORDER, type Category, type DigestDTO } from '@shared/types'
 import { ArticleGroup } from '@/domains/article/components/ArticleGroup'
 import { ArticlePreview } from '@/domains/article/components/ArticlePreview'
 import { ArticleRow } from '@/domains/article/components/ArticleRow'
@@ -88,7 +88,7 @@ export function DigestView(props: Props) {
             { id: 'all' as const, label: `전체 ${entries.length}` },
             ...CATEGORIES.filter((category) => entryCountByCategory.get(category)).map((category) => ({
                 id: category,
-                label: `${CATEGORY_SHORT[category]} ${entryCountByCategory.get(category)}`
+                label: `${CATEGORY_SHORT_LABEL[category]} ${entryCountByCategory.get(category)}`
             }))
         ]
     }, [entries])

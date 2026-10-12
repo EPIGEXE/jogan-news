@@ -1,7 +1,13 @@
-import type { AinewsApi } from '../shared/ipc'
+// ============================================================================
+// 화면용 API 타입 선언
+//
+// [역할]
+// - 화면 코드가 window.jogan을 타입과 함께 쓸 수 있도록 선언
+// ============================================================================
+import type { JoganApi } from '../shared/ipc'
 
 declare global {
-  interface Window {
-    ainews: AinewsApi
-  }
+    interface Window {
+        jogan: JoganApi
+    }
 }

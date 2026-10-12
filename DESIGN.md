@@ -592,7 +592,7 @@ ai-news/
 │  ├─ main/                 Main 프로세스 (3.1절)
 │  │  ├─ index.ts           조립만 (composition root)
 │  │  ├─ ipc/               화면 요청 입구: digest, library, settings, diagnostics
-│  │  ├─ triggers/          OS 이벤트 입구: power-triggers (앱 시작·잠금 해제·절전 복귀·8시)
+│  │  ├─ triggers/          OS 이벤트 입구: briefing-triggers (앱 시작·잠금 해제·절전 복귀·8시)
 │  │  ├─ services/          ports.ts, briefing-, settings-, content-, diagnostics-service (+ 테스트)
 │  │  ├─ platform/          tray/, window, notifier, secrets, network, autostart, netcheck,
 │  │  │                     worker-client, renderer-events, system(단축키·외부 링크)
@@ -693,7 +693,7 @@ ai-news/
 
 ### 13.8 이름과 트레이 아이콘 (2026-10-08)
 
-- **이름: Jogan.** 화면 제호·창 제목·알림·트레이·설치 프로그램 이름을 Jogan으로 맞췄습니다. 내부 식별자(`com.ainews.desktop`)와 데이터 폴더(`%APPDATA%\AINews`)는 그대로 둬서 기존 DB·저장한 기사·설정이 이어집니다. 설치판 실행 파일 이름이 바뀌므로, 예전 실행 파일로 켜 둔 자동 시작은 시작할 때 새 실행 파일로 다시 등록합니다.
+- **이름: Jogan.** 화면 제호·창 제목·알림·트레이·설치 프로그램 이름을 Jogan으로 맞췄습니다. 내부 식별자(`com.ainews.desktop`)와 데이터 폴더(`%APPDATA%\AINews`)는 그대로 둬서 기존 DB·저장한 기사·설정이 이어집니다.
 - **제호·아이콘:** 제호는 블랙레터 "Jogan"(UnifrakturMaguntia, OFL — 글꼴을 싣지 않고 외곽선 경로만 `shared/wordmark.ts`에 담음) + 이중선 + 부제 "朝刊 · 매일 아침 AI 소식". 앱 아이콘(`build/icon.png`)과 트레이 아이콘은 같은 블랙레터 J.
 - **트레이 아이콘:** 색 원(임시) → 앱 아이콘과 같은 구성(종이색 + 먹색 테두리 + 블랙레터 J). 상태는 오른쪽 아래 배지: 평소 없음 / 만드는 중 속 빈 먹색 원 / 새 브리핑 강조색 원 / 오프라인 회색 원 / 실패 빨간 원 + !. 화면 배율별(16·20·24·32px)로 코드에서 그립니다(`tray-icon.ts`). 밝은·어두운 작업 표시줄 모두에서 보이게 테두리를 둡니다.
 - **툴팁:** "Jogan · 상태"에 새 브리핑이면 오늘의 한 줄, 실패면 이유를 붙입니다(127자까지). 트레이 아이콘을 눌러 새 브리핑을 열면 배지를 거둡니다.

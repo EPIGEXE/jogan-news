@@ -105,7 +105,7 @@ flowchart TB
     DB[(SQLite<br/>ainews.db)]
   end
   OS[Windows<br/>로그인·잠금 해제·절전 복귀] --> IPC
-  UI <-->|IPC<br/>preload의 window.ainews| IPC
+  UI <-->|IPC<br/>preload의 window.jogan| IPC
   IPC --> SVC --> PLT
   PLT <-->|MessagePort RPC| WS
   WS --> PIPE --> DB
@@ -125,7 +125,7 @@ flowchart TB
 
 | 구간 | 방식 | 계약 정의 |
 |---|---|---|
-| Renderer ↔ Main | Electron IPC. Renderer는 preload가 노출한 `window.ainews`만 사용 | `src/shared/ipc.ts` (`IPC` 채널, `AinewsApi`) |
+| Renderer ↔ Main | Electron IPC. Renderer는 preload가 노출한 `window.jogan`만 사용 | `src/shared/ipc.ts` (`IPC` 채널, `JoganApi`) |
 | Main ↔ Worker | utilityProcess 메시지. 요청마다 id를 붙인 RPC와, Worker가 먼저 보내는 알림(진행 상황·기사 갱신·질문 답변 조각·로그) | `src/shared/worker-protocol.ts` (`WorkerApi`, `MainToWorker`, `WorkerToMain`) |
 
 화면에서 시작한 요청은 항상 **Renderer → Main(ipc → service) → Worker(WorkerService → repo) → DB** 순서로 내려가고, 결과는 같은 길로 돌아옵니다. Worker에서 생긴 일(생성 진행 상황, 저장 후 보강·번역 완료, AI 답변 조각)은 반대로 **Worker → Main(`BroadcastEvents`) → 열려 있는 창**으로 전달됩니다.
@@ -297,7 +297,7 @@ ai-news/
 ├─ build/             앱 아이콘 (icon.png)
 ├─ src/
 │  ├─ main/           Main 프로세스 (ipc · triggers · services · platform · diagnostics)
-│  ├─ preload/        화면에 노출할 API (window.ainews)
+│  ├─ preload/        화면에 노출할 API (window.jogan)
 │  ├─ worker/         Worker 프로세스 (collectors · pipeline · knowledge · llm · db)
 │  ├─ renderer/       React 화면 (app · screens · domains · common)
 │  └─ shared/         세 프로세스가 같이 쓰는 타입·계약·생성 시점 규칙·제호 글자 모양
@@ -474,7 +474,7 @@ flowchart TB
 - **판단 규칙:** `src/shared/schedule.ts`의 `shouldGenerate` (순수 함수, 단위 테스트로 고정).
   - 8시 전에 로그인해도 5시 이후면 "일찍 출근"으로 보고 바로 만듭니다. 그러면 그날 8시 타이머는 오늘 브리핑이 이미 있어서 건너뜁니다.
   - 새벽 5시 전의 잠금 해제는 전날 밤 작업으로 보고 만들지 않습니다.
-- **계기 감지:** `src/main/triggers/power-triggers.ts`의 `PowerTriggers`. Windows의 잠금 해제·절전 복귀 이벤트를 듣고, 다음 오전 8시까지 남은 시간만큼 타이머를 겁니다. 절전에서 깨어나면 타이머를 다시 계산합니다. 조건이 맞으면 생성을 시작만 하고(기다리지 않음) 시작 여부를 돌려줍니다.
+- **계기 감지:** `src/main/triggers/briefing-triggers.ts`의 `BriefingTriggers`. Windows의 잠금 해제·절전 복귀 이벤트를 듣고, 다음 오전 8시까지 남은 시간만큼 타이머를 겁니다. 절전에서 깨어나면 타이머를 다시 계산합니다. 조건이 맞으면 생성을 시작만 하고(기다리지 않음) 시작 여부를 돌려줍니다.
 - **다시 만들기는 없습니다:** 오늘 브리핑이 있으면 수동 요청도 건너뜁니다. 같은 날 후보는 거의 같고 선별·요약 결과도 다시 쓰므로 결과가 비슷하고, 낮 동안 쌓인 새 글은 다음 날 브리핑에 들어가기 때문입니다. 화면의 "오늘 브리핑 만들기"는 오늘 것이 없거나 생성이 실패했을 때만 보입니다. 건너뛰면 `runNow`가 false를 돌려줘 화면이 "준비 중"에서 멈추지 않고, 트레이의 "지금 브리핑 만들기"는 창을 엽니다.
 
 #### 낮 동안 미리 수집
@@ -490,7 +490,7 @@ flowchart TB
 
 ```mermaid
 sequenceDiagram
-  participant T as PowerTriggers
+  participant T as BriefingTriggers
   participant B as BriefingService
   participant N as 네트워크 확인
   participant S as 트레이 상태
@@ -582,11 +582,11 @@ flowchart TB
 #### ⑤ 같은 소식 묶기 (1차)
 - 최종 점수 상위 후보(브리핑 크기의 두 배)를 120B 모델에 보내, 같은 발표를 다룬 기사끼리 묶게 합니다. 공식 발표·보도·커뮤니티 글처럼 출처나 언어가 달라도 같은 발표면 한 묶음입니다.
 - 묶음마다 LLM이 **원본에 가장 가까운 기사**(공식 발표 > 보도 > 커뮤니티)를 대표로 고릅니다.
-- 대표가 아닌 기사는 `merged_into`로 표시해 다음 후보에서 빠지고, 그 출처는 대표의 `other_sources`로 옮겨집니다(`applyClusters`, `mergeInto`). 대표는 묶인 기사들의 참여도·중요도 중 큰 값을 물려받습니다.
+- 대표가 아닌 기사는 `merged_into`로 표시해 다음 후보에서 빠지고, 그 출처는 대표의 `other_sources`로 옮겨집니다(`applyClusters`, `mergeItemsInto`). 대표는 묶인 기사들의 참여도·중요도 중 큰 값을 물려받습니다.
 
 #### ⑥ 지난 7일 중복 확인
-- 1차로 묶은 상위 후보를 지난 7일 브리핑에 실린 기사 목록(오늘 브리핑 제외, `recentPublished`)과 함께 120B에 보내, 이미 보낸 소식인지 가립니다(`config/prompts/recent.md`). 출처·언어가 달라도 같은 발표면 같은 소식입니다.
-- **이미 보낸 소식:** 후보에서 빼고, 지난 기사에 출처로 붙입니다(`mergeInto`). 빠진 자리는 다음 후보로 채웁니다.
+- 1차로 묶은 상위 후보를 지난 7일 브리핑에 실린 기사 목록(오늘 브리핑 제외, `listRecentPublished`)과 함께 120B에 보내, 이미 보낸 소식인지 가립니다(`config/prompts/recent.md`). 출처·언어가 달라도 같은 발표면 같은 소식입니다.
+- **이미 보낸 소식:** 후보에서 빼고, 지난 기사에 출처로 붙입니다(`mergeItemsInto`). 빠진 자리는 다음 후보로 채웁니다.
 - **후속 소식:** 같은 소식이지만 중요한 새 전개(발표 → 실제 출시, 새 수치·가격, 정책 확정, 판결 등)면 싣되 `follow_up_of`에 지난 기사를 표시합니다. 목록에 "후속" 배지, 읽기 화면에 "지난 10/7(수) 브리핑에 실린 …의 새 전개" 안내가 나옵니다.
 - 실패하면 확인 없이 진행합니다. 호출 한 번, 약 $0.001입니다.
 
@@ -761,7 +761,7 @@ sequenceDiagram
 - **키 보관:** 입력한 키는 Windows 계정 단위로 암호화해 `groq-key.bin`에 저장합니다(`platform/secrets.ts`). 개발 중에는 저장된 키가 없으면 프로젝트의 `.env`를 읽습니다.
 - **키 변경 반영:** 키를 저장하거나 지우면 SettingsService가 Worker에 곧바로 알려서, 앱을 다시 켜지 않아도 다음 호출부터 새 키를 씁니다. 지우면 `.env` 키로 돌아갑니다.
 - **예산:** 월 예산·하루 상한은 Worker의 `settings` 테이블에 저장되고, 다음 생성부터 4.3절의 예산 확인에 쓰입니다. 메뉴 하단과 설정 화면에 이번 달 사용액을 보여줍니다.
-- **자동 시작:** Windows 로그인 항목에 등록합니다. 자동 시작으로 켜지면 창 없이 트레이에서 시작합니다. 이름을 AINews → Jogan으로 바꾸며 실행 파일 이름이 바뀌었으므로, 예전 실행 파일로 켜 둔 자동 시작은 시작할 때 새 실행 파일로 다시 등록합니다(`LoginItemAutostart.migrateRenamedExe`).
+- **자동 시작:** Windows 로그인 항목에 등록합니다. 자동 시작으로 켜지면 창 없이 트레이에서 시작합니다.
 
 ### 4.8 앱 창과 트레이
 

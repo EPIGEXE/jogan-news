@@ -1,3 +1,10 @@
+// ============================================================================
+// 설정 서비스 테스트
+//
+// [역할]
+// - API 키를 저장 · 삭제할 때 Worker에 실제로 쓸 키를 바로 알리는지 확인
+// - 저장된 키가 없을 때 개발용 .env 키 또는 null로 돌아가는지 확인
+// ============================================================================
 import { describe, expect, it, vi } from 'vitest'
 import type { ApiKeyStatus } from '@shared/ipc'
 import type { ApiKeyStore, WorkerRpc } from './ports'
@@ -7,10 +14,10 @@ import { SettingsService } from './settings-service'
 function memoryKeys(envKey: string | null = null): ApiKeyStore {
   let stored: string | null = null
   return {
-    get: () => stored ?? envKey,
-    status: (): ApiKeyStatus =>
+    getApiKey: () => stored ?? envKey,
+    getStatus: (): ApiKeyStatus =>
       stored ? { source: 'stored', hint: stored.slice(-4) } : envKey ? { source: 'env', hint: envKey.slice(-4) } : { source: 'none', hint: null },
-    set: (k) => {
+    setApiKey: (k) => {
       stored = k?.trim() || null
     }
   }
@@ -18,7 +25,7 @@ function memoryKeys(envKey: string | null = null): ApiKeyStore {
 
 function setup(envKey: string | null = null) {
   const worker = { call: vi.fn(), setApiKey: vi.fn() } as unknown as WorkerRpc & { setApiKey: ReturnType<typeof vi.fn> }
-  const service = new SettingsService({ keys: memoryKeys(envKey), autostart: { isEnabled: () => false, set: (on) => on }, worker })
+  const service = new SettingsService({ keys: memoryKeys(envKey), autostart: { isEnabled: () => false, setEnabled: (on) => on }, worker })
   return { service, worker }
 }
 

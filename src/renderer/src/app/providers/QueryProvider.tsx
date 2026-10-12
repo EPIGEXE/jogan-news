@@ -28,7 +28,6 @@ function createQueryClient(): QueryClient {
 // Main이 보내는 알림을 받아 캐시의 해당 데이터를 새로 읽도록 연결
 // 반환한 함수를 부르면 구독 해제
 function subscribeMainEvents(queryClient: QueryClient): () => void {
-
     // 저장 후 보강 · 번역 완료 → 그 기사를 다시 읽고, 새 태그 · 저장 여부를 목록에도 반영
     const unsubscribeItemUpdated = api.onItemUpdated((itemId) => {
         setEnriching(queryClient, itemId, false)
@@ -50,7 +49,7 @@ function subscribeMainEvents(queryClient: QueryClient): () => void {
     })
 
     // 생성 종료 → 비용이 바뀌므로 새로 읽기
-    const unsubscribeProgress = api.onProgress((runProgress) => {
+    const unsubscribeProgress = api.onRunProgress((runProgress) => {
         if (runProgress.stage === 'done' || runProgress.stage === 'error') void queryClient.invalidateQueries({ queryKey: queryKeys.usage })
     })
 

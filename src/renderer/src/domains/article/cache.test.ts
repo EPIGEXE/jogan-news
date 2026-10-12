@@ -50,7 +50,7 @@ describe('patchArticle', () => {
     qc.setQueryData(queryKeys.digestByDate('2026-10-07'), digest('2026-10-07', [1]))
     const lib: LibraryItemDTO = { itemId: 1, titleKo: '', originalTitle: '', summaryKo: '', category: 'tools', sourceName: 'A', url: '', isSaved: false, savedAt: null, digestDate: null, memo: '', tags: [] }
     qc.setQueryData(queryKeys.search({ scope: 'saved' }), [lib])
-    qc.setQueryData(queryKeys.itemDetail(1), { ...entry(1), savedAt: null, digestDate: null, paragraphs: [], fullText: true, paragraphsKo: null, translation: 'missing', highlights: [] } satisfies ItemDetailDTO)
+    qc.setQueryData(queryKeys.itemDetail(1), { ...entry(1), savedAt: null, digestDate: null, paragraphs: [], hasFullText: true, paragraphsKo: null, translation: 'missing', highlights: [] } satisfies ItemDetailDTO)
 
     patchArticle(qc, 1, { isSaved: true, tags: ['mcp'], isRead: true })
 
@@ -72,7 +72,7 @@ describe('patchArticle', () => {
     expect(qc.getQueryData(queryKeys.latestDigest)).toBe(d)
     expect(qc.getQueryData(queryKeys.itemDetail(9))).toBeUndefined()
 
-    qc.setQueryData(queryKeys.itemDetail(2), { ...entry(2), savedAt: null, digestDate: null, paragraphs: [], fullText: true, paragraphsKo: null, translation: 'missing', highlights: [] } satisfies ItemDetailDTO)
+    qc.setQueryData(queryKeys.itemDetail(2), { ...entry(2), savedAt: null, digestDate: null, paragraphs: [], hasFullText: true, paragraphsKo: null, translation: 'missing', highlights: [] } satisfies ItemDetailDTO)
     const hl = { id: 5, paragraph: 1, variant: 'ko' as const, start: 0, end: 3, text: 'abc', note: '', createdAt: '' }
     setHighlights(qc, 2, [hl])
     expect(qc.getQueryData<ItemDetailDTO>(queryKeys.itemDetail(2))!.highlights).toEqual([hl])

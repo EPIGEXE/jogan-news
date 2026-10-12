@@ -1,3 +1,11 @@
+// ============================================================================
+// DB 저장소 테스트
+//
+// [역할]
+// - 메모리 DB를 열어 저장소 함수의 업무 규칙 확인
+// - 수집 글 합치기 · 후보 제외, 브리핑 게시 · 조회, 설정, 검색, 태그, 메모 · 하이라이트의 자동 저장
+// - 지난 7일 브리핑 기사, 출처 통계, 번역, 질문 대화
+// ============================================================================
 import { describe, expect, it } from 'vitest'
 import type { RawItem } from '../collectors/types'
 import { openDb } from './db'
@@ -26,7 +34,7 @@ describe('repo', () => {
     const b = repo.upsertRawItem(db, raw({ sourceId: 'gn', sourceName: 'GeekNews', url: 'https://mistral.ai/news/large-4', engagement: 0, engagementLabel: null }))
     expect(a.isNew).toBe(true)
     expect(b).toEqual({ id: a.id, isNew: false })
-    const [item] = repo.getCandidates(db, new Date(0).toISOString(), '2026-10-07')
+    const [item] = repo.getBriefingCandidates(db, new Date(0).toISOString(), '2026-10-07')
     expect(JSON.parse(item!.other_sources)).toEqual([{ sourceName: 'GeekNews', url: 'https://mistral.ai/news/large-4', engagementLabel: null }])
     expect(item!.engagement).toBe(100)
   })
@@ -35,9 +43,9 @@ describe('repo', () => {
     const db = openDb(':memory:')
     const a = repo.upsertRawItem(db, raw())
     const b = repo.upsertRawItem(db, raw({ sourceId: 'tc', sourceName: 'TechCrunch', title: 'Mistral launches a 1T model', url: 'https://techcrunch.com/mistral', engagement: 0 }))
-    const r = repo.mergeInto(db, a.id, [b.id])
+    const r = repo.mergeItemsInto(db, a.id, [b.id])
     expect(r.otherSources).toBe(1)
-    expect(repo.getCandidates(db, new Date(0).toISOString(), '2026-10-07').map((c) => c.id)).toEqual([a.id])
+    expect(repo.getBriefingCandidates(db, new Date(0).toISOString(), '2026-10-07').map((c) => c.id)).toEqual([a.id])
   })
 
   it('메모를 쓰면 자동으로 저장되고, 빈 메모는 지워진다. 읽음도 브리핑에 반영된다', () => {
@@ -121,7 +129,7 @@ describe('repo', () => {
     repo.publishDigest(db, { date: '2026-10-06', headline: '어제', overview: null, stats, entries: [{ itemId: a.id, rank: 1, section: 'top', whyItMatters: null }] })
     repo.publishDigest(db, { date: '2026-10-07', headline: '오늘', overview: null, stats, entries: [{ itemId: b.id, rank: 1, section: 'top', whyItMatters: null }] })
     repo.setSaved(db, a.id, true)
-    expect(repo.listDigests(db).map((d) => [d.date, d.entries, d.saved])).toEqual([['2026-10-07', 1, 0], ['2026-10-06', 1, 1]])
+    expect(repo.listDigests(db).map((d) => [d.date, d.entryCount, d.savedCount])).toEqual([['2026-10-07', 1, 0], ['2026-10-06', 1, 1]])
     expect(repo.getDigestByDate(db, '2026-10-06')!.headline).toBe('어제')
     expect(repo.searchItems(db, { scope: 'published', query: 'Second' }).map((r) => [r.itemId, r.digestDate])).toEqual([[b.id, '2026-10-07']])
   })
@@ -129,9 +137,9 @@ describe('repo', () => {
   it('기사 상세: 본문 문단과 추출 여부를 돌려준다', () => {
     const db = openDb(':memory:')
     const { id } = repo.upsertRawItem(db, raw({ snippet: '요약만 있음' }))
-    expect(repo.getItemDetail(db, id)).toMatchObject({ paragraphs: ['요약만 있음'], fullText: false })
+    expect(repo.getItemDetail(db, id)).toMatchObject({ paragraphs: ['요약만 있음'], hasFullText: false })
     repo.saveContent(db, id, ['첫 문단', '둘째 문단'], true)
-    expect(repo.getItemDetail(db, id)).toMatchObject({ paragraphs: ['첫 문단', '둘째 문단'], fullText: true })
+    expect(repo.getItemDetail(db, id)).toMatchObject({ paragraphs: ['첫 문단', '둘째 문단'], hasFullText: true })
   })
 
   it('하이라이트: 글자는 본문에서 잘라 저장하고, 겹치면 합치며, 처음 그으면 기사를 저장한다', () => {
@@ -172,7 +180,7 @@ describe('repo', () => {
     repo.publishDigest(db, { date: '2026-09-28', headline: 'h', overview: null, stats, entries: entry(old.id) })
     repo.publishDigest(db, { date: '2026-10-05', headline: 'h', overview: null, stats, entries: entry(week.id) })
     repo.publishDigest(db, { date: '2026-10-08', headline: 'h', overview: null, stats, entries: entry(today.id) })
-    expect(repo.recentPublished(db, '2026-10-08', 7)).toEqual([{ id: week.id, date: '2026-10-05', title: 'This week news' }])
+    expect(repo.listRecentPublished(db, '2026-10-08', 7)).toEqual([{ id: week.id, date: '2026-10-05', title: 'This week news' }])
 
     repo.markFollowUp(db, today.id, week.id)
     expect(repo.getLatestDigest(db)!.entries[0]!.followUpOf).toEqual({ itemId: week.id, titleKo: 'This week news', digestDate: '2026-10-05' })
@@ -186,12 +194,12 @@ describe('repo', () => {
     repo.saveTriage(db, a.id, { category: 'tools', relevance: 0.9, importance: 4 })
     repo.publishDigest(db, { date: '2026-10-08', headline: 'h', overview: null, stats, entries: [{ itemId: a.id, rank: 1, section: 'top', whyItMatters: null }] })
     repo.setSaved(db, a.id, true)
-    repo.mergeInto(db, a.id, [g.id])
+    repo.mergeItemsInto(db, a.id, [g.id])
     const now = new Date().toISOString()
     repo.recordSourceFetch(db, { sourceId: 'hn', at: now, reason: 'briefing', ok: true, fetched: 30, newItems: 2, error: null })
     repo.recordSourceFetch(db, { sourceId: 'gn', at: now, reason: 'collect', ok: false, fetched: 0, newItems: 0, error: 'HTTP 403' })
 
-    const s = repo.sourceStats(db, new Date(Date.now() - 7 * 24 * 3600e3).toISOString(), 30)
+    const s = repo.getSourceStats(db, new Date(Date.now() - 7 * 24 * 3600e3).toISOString(), 30)
     expect(s.period.get('hn')).toEqual({ collected: 2, merged: 0, triaged: 1, published: 1, saved: 1 })
     expect(s.total.get('gn')).toEqual({ collected: 1, merged: 1, triaged: 0, published: 0, saved: 0 })
     expect(repo.sumFunnels([...s.total.values()]).collected).toBe(3)
@@ -204,7 +212,7 @@ describe('repo', () => {
     // 90일이 지난 기록은 지운다
     repo.recordSourceFetch(db, { sourceId: 'hn', at: '2020-01-01T00:00:00.000Z', reason: 'briefing', ok: true, fetched: 1, newItems: 0, error: null })
     repo.pruneSourceFetches(db, 90)
-    expect(repo.sourceStats(db, null, 1).recentFetches.get('hn')).toHaveLength(1)
+    expect(repo.getSourceStats(db, null, 1).recentFetches.get('hn')).toHaveLength(1)
   })
 
   it('번역: 문단별로 저장해 검색에도 걸리고, 본문을 다시 뽑으면 지워진다. 한국어 기사는 번역 대상이 아니다', () => {

@@ -140,7 +140,7 @@ export function DiagnosticsPage() {
                                                             >
                                                                 {netCheckResult.ok ? '정상' : '실패'} {netCheckResult.status ?? ''}
                                                             </span>{' '}
-                                                            · {netCheckResult.ms}ms
+                                                            · {netCheckResult.elapsedMs}ms
                                                             {netCheckResult.error && (
                                                                 <span className="block break-all text-caption text-ink-faint">
                                                                     {netCheckResult.error}
