@@ -20,6 +20,7 @@ export const queryKeys = {
     search: (searchParams: SearchParams) => ['search', searchParams] as const,
     tags: ['tags'] as const,
     chat: (scope: ChatScope) => ['chat', scope.kind === 'item' ? `item:${scope.itemId}` : `digest:${scope.date}`] as const,
+    chatHistory: ['chatHistory'] as const, // 지난 질문 목록 (질문한 적 있는 기사 · 브리핑)
     quickActions: ['quickActions'] as const,
     usage: ['usage'] as const,
     settings: ['settings'] as const,

@@ -6,12 +6,13 @@
 // - 질문 흐름: 질문 저장 후 바로 응답, Worker에 이전 대화 전달, 답변 조각 전달, 완료 시 답변 저장과 완료 알림
 // - 답변 실패 시 오류 알림만 보내고 질문은 남기는지 확인
 // - 대화가 범위(기사 · 브리핑 날짜)별로 쌓이고 지워지는지 확인
+// - 지난 질문 목록: 기사 · 브리핑의 제목이 붙는지, 없어진 기사 · 브리핑의 대화가 빠지는지 확인
 // - Worker는 가짜로 대신하고 저장소는 메모리 DB에 실제로 붙임
 // ============================================================================
 import { describe, expect, it, vi } from 'vitest'
 import type { ChatScope, QuickActions } from '@shared/types'
 import type { WorkerParams, WorkerResult } from '@shared/worker-protocol'
-import { ChatService, chatScopeKey } from './chat-service'
+import { ChatService, chatScopeKey, parseChatScopeKey } from './chat-service'
 import { createFakeEvents, createFakeWorker, createTestRepositories, insertTestItem } from './test-support'
 
 const QUICK_ACTIONS: QuickActions = { item: [{ label: '요약', prompt: '세 줄로 요약해 줘' }], digest: [] }
@@ -44,6 +45,14 @@ describe('ChatService', () => {
     it('범위를 대화 키로 바꾼다', () => {
         expect(chatScopeKey({ kind: 'item', itemId: 7 })).toBe('item:7')
         expect(chatScopeKey({ kind: 'digest', date: '2026-10-07' })).toBe('digest:2026-10-07')
+    })
+
+    it('대화 키를 범위로 되돌리고, 모양이 맞지 않는 키는 null로 돌려준다', () => {
+        expect(parseChatScopeKey('item:7')).toEqual({ kind: 'item', itemId: 7 })
+        expect(parseChatScopeKey('digest:2026-10-07')).toEqual({ kind: 'digest', date: '2026-10-07' })
+        expect(parseChatScopeKey('item:abc')).toBeNull()
+        expect(parseChatScopeKey('digest:어제')).toBeNull()
+        expect(parseChatScopeKey('library:1')).toBeNull()
     })
 
     it('빈 질문 · API 키 없음 · 없는 기사 · 없는 브리핑은 질문을 저장하지 않고 거절한다', () => {
@@ -126,6 +135,97 @@ describe('ChatService', () => {
         chatService.clearChat(itemScope)
         expect(chatService.getChatHistory(itemScope)).toEqual([])
         expect(chatService.getChatHistory(digestScope)).toHaveLength(2)
+    })
+
+    it('지난 질문 목록: 기사는 한국어 제목(없으면 원제)과 출처, 브리핑은 그날의 한 줄을 붙여 최근에 질문한 것부터 돌려준다', () => {
+        const { chatService, chatRepository, itemRepository, digestRepository, itemId } = setup()
+        expect(chatService.listChatHistory()).toEqual([])
+
+        // 요약을 마쳐 한국어 제목이 있는 기사
+        const summarizedItemId = insertTestItem(itemRepository, { sourceName: 'Mistral Blog' })
+        itemRepository.updateItemSummary(
+            summarizedItemId,
+            { titleKo: '미스트랄 라지 4 공개', summaryKo: '요약', keyPoints: [], whyKo: '' },
+            'test-model'
+        )
+        const digestId = digestRepository.insertDigest('2026-10-07', {
+            headline: '새 모델이 쏟아진 날',
+            overview: null,
+            stats: DIGEST_STATS
+        })
+        digestRepository.insertEntries(digestId, [{ itemId, rank: 1, section: 'top', whyItMatters: null }])
+
+        // 질문한 순서: 요약 전 기사 → 브리핑 → 요약한 기사 (질문 2개)
+        const untitledChatId = chatRepository.upsertChat(chatScopeKey({ kind: 'item', itemId }))
+        chatRepository.insertChatMessage({
+            chatId: untitledChatId,
+            role: 'user',
+            content: '핵심은?',
+            createdAt: '2026-10-07T01:00:00.000Z'
+        })
+        const digestChatId = chatRepository.upsertChat('digest:2026-10-07')
+        chatRepository.insertChatMessage({
+            chatId: digestChatId,
+            role: 'user',
+            content: '꼭 읽을 것은?',
+            createdAt: '2026-10-07T02:00:00.000Z'
+        })
+        const summarizedChatId = chatRepository.upsertChat(chatScopeKey({ kind: 'item', itemId: summarizedItemId }))
+        chatRepository.insertChatMessage({
+            chatId: summarizedChatId,
+            role: 'user',
+            content: '가격은?',
+            createdAt: '2026-10-07T03:00:00.000Z'
+        })
+        chatRepository.insertChatMessage({
+            chatId: summarizedChatId,
+            role: 'assistant',
+            content: '미정이다.',
+            createdAt: '2026-10-07T03:00:05.000Z'
+        })
+        chatRepository.insertChatMessage({
+            chatId: summarizedChatId,
+            role: 'user',
+            content: '한계는?',
+            createdAt: '2026-10-07T04:00:00.000Z'
+        })
+
+        expect(chatService.listChatHistory()).toEqual([
+            {
+                scope: { kind: 'item', itemId: summarizedItemId },
+                title: '미스트랄 라지 4 공개',
+                sourceName: 'Mistral Blog',
+                questionCount: 2,
+                lastQuestion: '한계는?',
+                lastAskedAt: '2026-10-07T04:00:00.000Z'
+            },
+            {
+                scope: { kind: 'digest', date: '2026-10-07' },
+                title: '새 모델이 쏟아진 날',
+                sourceName: null,
+                questionCount: 1,
+                lastQuestion: '꼭 읽을 것은?',
+                lastAskedAt: '2026-10-07T02:00:00.000Z'
+            },
+            {
+                scope: { kind: 'item', itemId },
+                title: 'Mistral Large 4 released',
+                sourceName: 'Hacker News',
+                questionCount: 1,
+                lastQuestion: '핵심은?',
+                lastAskedAt: '2026-10-07T01:00:00.000Z'
+            }
+        ])
+    })
+
+    it('지난 질문 목록: 기사 · 브리핑이 없어진 대화와 모양이 맞지 않는 키의 대화는 빠진다', () => {
+        const { chatService, chatRepository, itemScope } = setup()
+        for (const scopeKey of [chatScopeKey(itemScope), 'item:999', 'digest:2026-10-07', 'library:1']) {
+            const chatId = chatRepository.upsertChat(scopeKey)
+            chatRepository.insertChatMessage({ chatId, role: 'user', content: '핵심은?' })
+        }
+
+        expect(chatService.listChatHistory().map((chatHistoryEntry) => chatHistoryEntry.scope)).toEqual([itemScope])
     })
 
     it('빠른 질문 목록은 설정 파일의 것을 그대로 돌려준다', () => {

@@ -64,6 +64,7 @@ interface Props {
     backLabel: string // 돌아가기 버튼의 "← …" 글자
     previousArticle?: Neighbor // 이전 기사 (없으면 버튼 비활성)
     nextArticle?: Neighbor // 다음 기사 (없으면 버튼 비활성)
+    initialSideTab?: SideTab // 처음 열었을 때 옆 단에서 보여줄 탭 (기본은 메모)
 }
 
 // 입력창에 글을 쓰는 중인지 (쓰는 중에는 단축키 무시)
@@ -81,7 +82,7 @@ function isTyping(keyboardEvent: KeyboardEvent): boolean {
  *
  * @returns {JSX.Element} 읽기 화면
  */
-export function ArticleReader({ article, onBack, backLabel, previousArticle, nextArticle }: Props) {
+export function ArticleReader({ article, onBack, backLabel, previousArticle, nextArticle, initialSideTab = 'memo' }: Props) {
     // =============================== 훅 ===================================
     const queryClient = useQueryClient()
     const articleActions = useArticleActions(article)! // 이 기사에 대한 동작 (저장 · 메모 · 태그 · 원문 열기)
@@ -99,7 +100,7 @@ export function ArticleReader({ article, onBack, backLabel, previousArticle, nex
     const autoTranslation = useAutoTranslate(itemDetail) // 번역이 없는 기사면 번역 요청 (번역 중 · 실패 여부와 다시 시도 제공)
 
     // =============================== 상태 ===================================
-    const [sideTab, setSideTab] = useState<SideTab>('memo') // 옆 단에서 보고 있는 탭
+    const [sideTab, setSideTab] = useState<SideTab>(initialSideTab) // 옆 단에서 보고 있는 탭
     // 짚어 줄 문단 (seq는 같은 문단을 다시 눌러도 잔상이 다시 보이게 누를 때마다 증가)
     const [focusedParagraph, setFocusedParagraph] = useState<{ paragraphNumber: number; seq: number } | null>(null)
     const [activeHighlightId, setActiveHighlightId] = useState<number | null>(null) // 하이라이트 탭에서 강조할 하이라이트

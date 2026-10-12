@@ -16,6 +16,7 @@ interface Props {
     onChange(value: string): void // 입력을 멈추고 잠시 뒤에 호출
     label: string // 화면 낭독기용 이름 (화면에는 보이지 않음)
     placeholder?: string
+    autoFocus?: boolean // 화면에 나타날 때 바로 입력할 수 있게 포커스 (커서는 글자 끝)
 }
 
 /**
@@ -25,7 +26,7 @@ interface Props {
  *
  * @returns {JSX.Element} 검색어 입력란
  */
-export function SearchInput({ value, onChange, label, placeholder }: Props) {
+export function SearchInput({ value, onChange, label, placeholder, autoFocus = false }: Props) {
     // =============================== 상태 ===================================
     const [draftQuery, setDraftQuery] = useState(value) // 입력란에 보이는 글자 (아직 전달하지 않은 입력 포함)
 
@@ -47,6 +48,9 @@ export function SearchInput({ value, onChange, label, placeholder }: Props) {
                 type="search"
                 width="wide"
                 placeholder={placeholder}
+                autoFocus={autoFocus}
+                // 포커스를 받을 때 커서를 글자 끝으로 (다시 나타난 검색창에서 이어서 입력할 수 있게)
+                onFocus={(focusEvent) => focusEvent.currentTarget.setSelectionRange(draftQuery.length, draftQuery.length)}
                 value={draftQuery}
                 onChange={(changeEvent) => setDraftQuery(changeEvent.target.value)}
                 onKeyDown={(keyboardEvent) => {

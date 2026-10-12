@@ -4,6 +4,7 @@
 // [역할]
 // - 메모리 DB에 실제 쿼리를 돌려 대화 준비 · 메시지 저장 · 조회 · 삭제 확인
 // - 범위 키별로 따로 쌓이는지, 저장한 순서로 나오는지, 대화를 지우면 그 범위의 메시지만 지워지는지
+// - 대화별 질문 요약: 질문만 세는지, 가장 최근 질문을 고르는지, 최근에 질문한 대화부터 나오는지
 // ============================================================================
 import { describe, expect, it } from 'vitest'
 import { chatMessages } from '@data/schema'
@@ -118,5 +119,50 @@ describe('chat-repository', () => {
     it('없는 대화에는 메시지를 넣을 수 없다 (외래 키)', () => {
         const chatRepository = createChatRepository(openTestDatabase())
         expect(() => chatRepository.insertChatMessage({ chatId: 999, role: 'user', content: '핵심은?' })).toThrow()
+    })
+
+    it('대화별 질문 요약: 질문만 세고 가장 최근 질문을 고르며, 최근에 질문한 대화부터 돌려준다', () => {
+        const chatRepository = createChatRepository(openTestDatabase())
+        expect(chatRepository.listChatQuestionSummaries()).toEqual([])
+
+        const itemChatId = chatRepository.upsertChat(ITEM_SCOPE_KEY)
+        const digestChatId = chatRepository.upsertChat(DIGEST_SCOPE_KEY)
+        chatRepository.insertChatMessage({ chatId: itemChatId, role: 'user', content: '핵심은?', createdAt: '2026-10-07T01:00:00.000Z' })
+        chatRepository.insertChatMessage({
+            chatId: itemChatId,
+            role: 'assistant',
+            content: '새 모델이다.',
+            createdAt: '2026-10-07T01:00:05.000Z'
+        })
+        chatRepository.insertChatMessage({
+            chatId: digestChatId,
+            role: 'user',
+            content: '꼭 읽을 것은?',
+            createdAt: '2026-10-08T01:00:00.000Z'
+        })
+        chatRepository.insertChatMessage({ chatId: itemChatId, role: 'user', content: '한계는?', createdAt: '2026-10-09T01:00:00.000Z' })
+        // 가장 최근 질문 뒤에 온 답변은 질문 수 · 최근 질문 · 순서에 들어가지 않음
+        chatRepository.insertChatMessage({
+            chatId: digestChatId,
+            role: 'assistant',
+            content: '세 건이다.',
+            createdAt: '2026-10-10T01:00:00.000Z'
+        })
+
+        expect(chatRepository.listChatQuestionSummaries()).toEqual([
+            { scopeKey: ITEM_SCOPE_KEY, questionCount: 2, lastQuestion: '한계는?', lastAskedAt: '2026-10-09T01:00:00.000Z' },
+            { scopeKey: DIGEST_SCOPE_KEY, questionCount: 1, lastQuestion: '꼭 읽을 것은?', lastAskedAt: '2026-10-08T01:00:00.000Z' }
+        ])
+    })
+
+    it('대화별 질문 요약: 질문이 없는 대화(빈 대화 · 답변만 있는 대화)는 빠진다', () => {
+        const chatRepository = createChatRepository(openTestDatabase())
+        chatRepository.upsertChat(ITEM_SCOPE_KEY)
+        const answerOnlyChatId = chatRepository.upsertChat('item:2')
+        chatRepository.insertChatMessage({ chatId: answerOnlyChatId, role: 'assistant', content: '새 모델이다.' })
+        const digestChatId = chatRepository.upsertChat(DIGEST_SCOPE_KEY)
+        chatRepository.insertChatMessage({ chatId: digestChatId, role: 'user', content: '꼭 읽을 것은?' })
+
+        expect(chatRepository.listChatQuestionSummaries().map((questionSummary) => questionSummary.scopeKey)).toEqual([DIGEST_SCOPE_KEY])
     })
 })

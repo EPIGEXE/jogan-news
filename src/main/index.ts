@@ -97,7 +97,8 @@ function resolveMigrationsDir(): string {
 // 앱에 필요한 객체를 만들어 연결하고 시작
 function assembleAndStart(): void {
     // Windows 알림이 이 앱의 것으로 뜨도록 앱 ID 지정 (DESIGN.md 5절)
-    app.setAppUserModelId(APP_ID)
+    // 개발 실행은 실행 파일 경로를 ID로 써서 설치판과 구분 (같은 ID면 작업 표시줄에서 설치판 버튼에 묶여 아이콘이 섞임)
+    app.setAppUserModelId(app.isPackaged ? APP_ID : process.execPath)
     const startsHidden = process.argv.includes('--hidden') // 자동 시작으로 켜진 경우 (창을 띄우지 않음)
 
     // =============================== 데이터 (DB · 설정 파일 · 저장소) ===================================

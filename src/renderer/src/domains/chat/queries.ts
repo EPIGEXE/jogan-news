@@ -4,10 +4,11 @@
 // [역할]
 // - 대화 데이터를 읽고 바꾸는 훅 모음
 // - 지난 대화를 범위(기사 하나 또는 그날 브리핑)별로 캐시에 보관
+// - 지난 질문 목록 조회 (질문을 보내거나 답변이 끝나거나 대화를 지우면 다시 읽기)
 // - 빠른 질문 버튼 목록 조회, 질문 보내기 · 대화 지우기
 // ============================================================================
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
-import type { ChatMessageDTO, ChatScope, QuickActions } from '@shared/types'
+import type { ChatHistoryEntryDTO, ChatMessageDTO, ChatScope, QuickActions } from '@shared/types'
 import { api } from '@/common/lib/api'
 import { queryKeys } from '@/common/lib/queryKeys'
 
@@ -26,6 +27,16 @@ export function appendChatMessage(queryClient: QueryClient, scope: ChatScope, me
     queryClient.setQueryData<ChatMessageDTO[]>(queryKeys.chat(scope), (chatMessages) => [...(chatMessages ?? []), message])
 }
 
+/**
+ * 지난 질문 목록을 다시 읽도록 표시 (질문을 보냈을 때, 답변이 끝났을 때, 대화를 지웠을 때)
+ *
+ * @param {QueryClient} queryClient - 쿼리 캐시
+ * @returns {void}
+ */
+export function invalidateChatHistory(queryClient: QueryClient): void {
+    void queryClient.invalidateQueries({ queryKey: queryKeys.chatHistory })
+}
+
 // =============================== 조회 ===================================
 
 /**
@@ -39,6 +50,15 @@ export function useChatMessagesQuery(scope: ChatScope | null): ChatMessageDTO[] 
         useQuery({ queryKey: queryKeys.chat(scope ?? NO_SCOPE), queryFn: () => api.getChat(scope!), enabled: scope !== null }).data ??
         NO_CHAT_MESSAGES
     )
+}
+
+/**
+ * 지난 질문 목록 조회 (질문한 적 있는 기사 · 브리핑, 최근에 질문한 것부터)
+ *
+ * @returns {UseQueryResult<ChatHistoryEntryDTO[]>} 지난 질문 목록 조회 결과
+ */
+export function useChatHistoryQuery() {
+    return useQuery<ChatHistoryEntryDTO[]>({ queryKey: queryKeys.chatHistory, queryFn: () => api.listChatHistory() })
 }
 
 /**
@@ -58,6 +78,7 @@ export function useQuickActionsQuery(): QuickActions | null {
  * 질문 보내기
  *
  * - 보낸 질문을 대화에 붙이고 requestId를 돌려줌 (답변 조각은 그 requestId로 따로 도착)
+ * - 질문 수와 가장 최근 질문이 바뀌므로 지난 질문 목록을 다시 읽음
  *
  * @returns {UseMutationResult<{ requestId: string, userMessage: ChatMessageDTO }>} 범위(scope)와 질문(question)을 받는 요청 훅
  */
@@ -65,12 +86,17 @@ export function useAskChatMutation() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: ({ scope, question }: { scope: ChatScope; question: string }) => api.ask(scope, question),
-        onSuccess: ({ userMessage }, { scope }) => appendChatMessage(queryClient, scope, userMessage)
+        onSuccess: ({ userMessage }, { scope }) => {
+            appendChatMessage(queryClient, scope, userMessage)
+            invalidateChatHistory(queryClient)
+        }
     })
 }
 
 /**
  * 대화 지우기
+ *
+ * - 지운 대화는 지난 질문 목록에서도 빠지므로 목록을 다시 읽음
  *
  * @returns {UseMutationResult<void>} 범위(scope)를 받는 요청 훅
  */
@@ -78,6 +104,9 @@ export function useClearChatMutation() {
     const queryClient = useQueryClient()
     return useMutation({
         mutationFn: (scope: ChatScope) => api.clearChat(scope),
-        onSuccess: (_data, scope) => queryClient.setQueryData(queryKeys.chat(scope), [])
+        onSuccess: (_data, scope) => {
+            queryClient.setQueryData(queryKeys.chat(scope), [])
+            invalidateChatHistory(queryClient)
+        }
     })
 }

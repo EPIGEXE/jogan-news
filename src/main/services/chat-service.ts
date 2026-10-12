@@ -2,7 +2,7 @@
 // AI 질문 서비스
 //
 // [역할]
-// - 대화 조회 · 질문 · 대화 삭제 · 빠른 질문 목록 (대화는 범위별로 따로: 기사 하나 또는 그날 브리핑)
+// - 대화 조회 · 질문 · 대화 삭제 · 지난 질문 목록 · 빠른 질문 목록 (대화는 범위별로 따로: 기사 하나 또는 그날 브리핑)
 // - 대화를 찾는 키: 'item:<기사 번호>' 또는 'digest:<날짜>'
 // - 질문을 받기 전 확인: 빈 질문, API 키 없음, 근거가 될 기사 · 브리핑 없음이면 질문을 저장하지 않고 오류
 // - 질문은 저장하고 바로 돌려줌 (요청 번호와 저장된 내 질문), 답변 생성은 Worker에 맡기고 기다리지 않음
@@ -10,10 +10,12 @@
 // - 답변 조각: Worker가 보내는 대로 화면에 전달
 // - 답변 완료: 답변을 대화에 저장하고 저장된 메시지와 함께 완료 알림
 // - 답변 실패: 오류 알림만 보냄 (저장한 질문은 남김)
+// - 지난 질문 목록: 질문한 적 있는 기사 · 브리핑을 최근에 질문한 것부터, 기사 · 브리핑이 없어진 대화는 뺌
+// - 질문해도 기사를 저장하지 않음 (질문은 관심 표시가 아님, 질문한 기사는 지난 질문 목록으로 다시 찾음)
 // - 답변을 만드는 일(근거 조립 · 모델 호출 · 인용 정리)은 Worker가 담당
 // ============================================================================
 import { randomUUID } from 'node:crypto'
-import type { ChatMessageDTO, ChatScope, QuickActions } from '@shared/types'
+import type { ChatHistoryEntryDTO, ChatMessageDTO, ChatScope, QuickActions } from '@shared/types'
 import { nowIso, runInTransaction, type AppDatabase } from '@data/client'
 import type { ChatRepository, NewChatMessage } from '@data/repositories/chat-repository'
 import type { DigestRepository } from '@data/repositories/digest-repository'
@@ -23,8 +25,8 @@ import type { ApiKeyStore, LogFn, RendererEvents, WorkerRpc } from './ports'
 export interface ChatServiceDeps {
     database: AppDatabase // 여러 쓰기를 한 묶음으로 실행할 때만 사용
     chatRepository: ChatRepository // 대화와 메시지 저장소
-    itemRepository: ItemRepository // 질문 범위의 기사가 있는지 확인 (읽기만)
-    digestRepository: DigestRepository // 질문 범위의 브리핑이 있는지 확인 (읽기만)
+    itemRepository: ItemRepository // 질문 범위의 기사가 있는지 확인, 지난 질문 목록의 기사 제목 · 출처 (읽기만)
+    digestRepository: DigestRepository // 질문 범위의 브리핑이 있는지 확인, 지난 질문 목록의 브리핑 한 줄 (읽기만)
     keys: Pick<ApiKeyStore, 'getApiKey'> // API 키가 있는지 확인
     worker: WorkerRpc // 답변을 만드는 Worker
     events: RendererEvents // 화면으로 보내는 알림
@@ -40,6 +42,24 @@ export interface ChatServiceDeps {
  */
 export function chatScopeKey(chatScope: ChatScope): string {
     return chatScope.kind === 'item' ? `item:${chatScope.itemId}` : `digest:${chatScope.date}`
+}
+
+/**
+ * 대화를 찾는 키를 질문 범위로 변환 (chatScopeKey의 반대)
+ *
+ * @param {string} scopeKey - 'item:<기사 번호>' 또는 'digest:<날짜>'
+ * @returns {ChatScope | null} 질문 범위 (모양이 맞지 않는 키면 null)
+ */
+export function parseChatScopeKey(scopeKey: string): ChatScope | null {
+    // 기사 대화: 'item:' 뒤가 숫자
+    const itemKeyMatch = /^item:(\d+)$/.exec(scopeKey)
+    if (itemKeyMatch) return { kind: 'item', itemId: Number(itemKeyMatch[1]) }
+
+    // 브리핑 대화: 'digest:' 뒤가 'YYYY-MM-DD' 날짜
+    const digestKeyMatch = /^digest:(\d{4}-\d{2}-\d{2})$/.exec(scopeKey)
+    if (digestKeyMatch) return { kind: 'digest', date: digestKeyMatch[1]! }
+
+    return null
 }
 
 /**
@@ -118,6 +138,60 @@ export class ChatService {
     // 그 범위의 대화 삭제 (메시지도 함께 지워짐)
     clearChat(chatScope: ChatScope): void {
         this.deps.chatRepository.deleteChatByScopeKey(chatScopeKey(chatScope))
+    }
+
+    /**
+     * 지난 질문 목록 (질문한 적 있는 기사 · 브리핑)
+     *
+     * - 최근에 질문한 것부터
+     * - 기사 · 브리핑이 더는 없는 대화는 목록에서 뺌 (대화 자체는 지우지 않음)
+     *
+     * @returns {ChatHistoryEntryDTO[]} 대화가 있는 범위마다 한 줄 (제목 · 출처 · 질문 수 · 가장 최근 질문)
+     */
+    listChatHistory(): ChatHistoryEntryDTO[] {
+        const { chatRepository, itemRepository, digestRepository } = this.deps
+
+        // 질문이 있는 대화마다 질문 수와 가장 최근 질문 (최근에 질문한 대화부터)
+        const questionSummaries = chatRepository.listChatQuestionSummaries()
+
+        // 범위 키를 질문 범위로 풀기 (모양이 맞지 않는 키의 대화는 버림)
+        const scopedSummaries = questionSummaries.flatMap((questionSummary) => {
+            const chatScope = parseChatScopeKey(questionSummary.scopeKey)
+            return chatScope ? [{ chatScope, questionSummary }] : []
+        })
+
+        // 기사 대화의 기사를 한 번에 조회 (제목 · 출처)
+        const askedItemIds = scopedSummaries.flatMap(({ chatScope }) => (chatScope.kind === 'item' ? [chatScope.itemId] : []))
+        const itemRowById = new Map(itemRepository.listItemsByIds(askedItemIds).map((itemRow) => [itemRow.id, itemRow]))
+
+        // 브리핑 대화가 있을 때만 브리핑 목록을 한 번 조회 (날짜별 그날의 한 줄)
+        const hasDigestChat = scopedSummaries.some(({ chatScope }) => chatScope.kind === 'digest')
+        const digestSummaries = hasDigestChat ? digestRepository.listDigestSummaries() : []
+        const headlineByDigestDate = new Map(digestSummaries.map((digestSummary) => [digestSummary.date, digestSummary.headline]))
+
+        // 목록의 한 줄로 조립 (대화 순서 그대로)
+        return scopedSummaries.flatMap(({ chatScope, questionSummary }): ChatHistoryEntryDTO[] => {
+            const questionFields = {
+                questionCount: questionSummary.questionCount,
+                lastQuestion: questionSummary.lastQuestion,
+                lastAskedAt: questionSummary.lastAskedAt
+            }
+
+            if (chatScope.kind === 'item') {
+                // 기사가 없어진 대화 → 목록에서 뺌
+                const itemRow = itemRowById.get(chatScope.itemId)
+                if (!itemRow) return []
+
+                // 한국어 제목이 아직 없으면(요약 전) 원제
+                return [{ scope: chatScope, title: itemRow.titleKo ?? itemRow.title, sourceName: itemRow.sourceName, ...questionFields }]
+            }
+
+            // 그날 브리핑이 없어진 대화 → 목록에서 뺌
+            const digestHeadline = headlineByDigestDate.get(chatScope.date)
+            if (digestHeadline === undefined) return []
+
+            return [{ scope: chatScope, title: digestHeadline, sourceName: null, ...questionFields }]
+        })
     }
 
     // 설정 파일에 정해 둔 빠른 질문 목록 (기사용 · 브리핑용)

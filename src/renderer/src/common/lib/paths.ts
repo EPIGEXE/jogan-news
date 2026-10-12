@@ -17,7 +17,11 @@ export const paths = {
     library: (itemId?: number | null) => withItem('/library', itemId),
     archive: (query = '') => withQuery('/archive', query), // 검색어가 있으면 검색 결과 목록
     archiveDate: (date: string, itemId?: number | null) => withItem(`/archive/${date}`, itemId), // 그날 브리핑
-    archiveSearch: (query: string, itemId: number) => withQuery(`/archive/search/${itemId}`, query) // 검색 결과에서 연 읽기 화면
+    archiveSearch: (query: string, itemId: number) => withQuery(`/archive/search/${itemId}`, query), // 검색 결과에서 연 읽기 화면
+    ask: () => '/ask', // 최신 브리핑에 질문
+    askHistory: () => '/ask/history', // 지난 질문 목록
+    askHistoryItem: (itemId: number) => `/ask/history/item/${itemId}`, // 지난 질문에서 연 기사의 읽기 화면
+    askHistoryDigest: (date: string) => `/ask/history/digest/${date}` // 지난 질문에서 연 그날 브리핑의 대화
 }
 
 /**

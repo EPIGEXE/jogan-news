@@ -56,10 +56,15 @@ export function ArchivePage() {
 
     // =============================== Ref ===================================
     const rowRefs = useRef(new Map<string, HTMLButtonElement>()) // 날짜별 행 버튼 (고른 행을 화면 안으로 스크롤하는 용도)
+    const refocusSearchInput = useRef(false) // 검색어를 방금 바꿨는지 (화면 구성이 바뀌어 다시 나타나는 검색창에 포커스를 돌려주는 용도)
 
     // =============================== 계산 ===================================
-    // 글자를 칠 때마다 방문 기록이 쌓이지 않게 바꿔치기
-    const setSearchText = (nextSearchText: string) => navigate(paths.archive(nextSearchText), { replace: true })
+    // 검색어 변경 (글자를 칠 때마다 방문 기록이 쌓이지 않게 바꿔치기)
+    // 검색어가 생기거나 없어지면 날짜 목록 ↔ 검색 결과로 화면 구성이 바뀌어 검색창이 새로 만들어지므로, 입력을 이어 갈 수 있게 포커스를 돌려주도록 표시
+    const setSearchText = (nextSearchText: string) => {
+        refocusSearchInput.current = true
+        void navigate(paths.archive(nextSearchText), { replace: true })
+    }
 
     const digestIds = (digestSummaries ?? []).map((digestSummary) => digestSummary.id)
     const dateOfDigest = (digestId: number) => digestSummaries?.find((digestSummary) => digestSummary.id === digestId)?.date ?? null
@@ -79,10 +84,21 @@ export function ArchivePage() {
 
     // 검색 입력란 (검색 결과 화면과 날짜 목록 화면이 함께 사용)
     const searchInput = (
-        <SearchInput value={searchText} onChange={setSearchText} label="아카이브 검색" placeholder="지금까지 브리핑에 실린 기사에서 찾기" />
+        <SearchInput
+            value={searchText}
+            onChange={setSearchText}
+            label="아카이브 검색"
+            placeholder="지금까지 브리핑에 실린 기사에서 찾기"
+            autoFocus={refocusSearchInput.current}
+        />
     )
 
     // =============================== useEffect ===================================
+    // 포커스 돌려주기 표시는 검색어를 바꾼 직후의 화면에만 적용 (읽기 화면에서 돌아올 때 검색창이 포커스를 가져가지 않게)
+    useEffect(() => {
+        refocusSearchInput.current = false
+    })
+
     // 처음에는 가장 최근 날짜 선택
     useEffect(() => {
         if (selectedDate === null && digestSummaries?.[0]) setSelectedDate(digestSummaries[0].date)

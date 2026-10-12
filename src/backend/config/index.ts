@@ -23,7 +23,6 @@ export interface ModelSpec {
     maxCompletionTokens: number // 출력 토큰 상한
 }
 
-
 // 글의 종류 (브리핑 분류의 참고값. 최종 분류는 LLM이 정함)
 const ItemKindSchema = z.enum(['news', 'paper', 'community', 'release'])
 
@@ -145,13 +144,18 @@ export function loadConfig(configDir: string): AppConfig {
     // 출처는 꺼진 것까지 전부 읽어 두고, 수집용으로 켜진 것만 따로 추림
     const allSources = z.object({ sources: z.array(SourceSchema) }).parse(readYamlFile(join(configDir, 'sources.yaml'))).sources
 
+    // 역할별 모델과 단가표를 읽고, 쓰는 모델마다 단가가 있는지 확인
+    const modelsConfig = ModelsSchema.parse(readYamlFile(join(configDir, 'models.yaml')))
+    const pricing = loadPricing(join(configDir, 'pricing.yaml'))
+    assertEveryModelHasPrice(modelsConfig, pricing)
+
     // 나머지 YAML은 형식을 검증해서, 프롬프트는 파일 내용 그대로 담음
     return {
         sources: allSources.filter((sourceConfig) => sourceConfig.enabled),
         allSources,
         interests: InterestsSchema.parse(readYamlFile(join(configDir, 'interests.yaml'))).keywords,
-        models: ModelsSchema.parse(readYamlFile(join(configDir, 'models.yaml'))),
-        pricing: loadPricing(join(configDir, 'pricing.yaml')),
+        models: modelsConfig,
+        pricing,
         prompts: {
             triage: readFileSync(join(configDir, 'prompts', 'triage.md'), 'utf8'),
             cluster: readFileSync(join(configDir, 'prompts', 'cluster.md'), 'utf8'),
@@ -165,6 +169,19 @@ export function loadConfig(configDir: string): AppConfig {
         },
         quickActions: QuickActionsSchema.parse(readYamlFile(join(configDir, 'quick-actions.yaml')))
     }
+}
+
+// 설정에 적힌 모델(절약 모드 모델 포함) 가운데 단가표에 없는 것이 있으면 오류
+// 단가가 없으면 그 모델의 비용을 계산하지 못해 사용액이 0으로 쌓이고, 월 예산 · 하루 상한이 걸리지 않게 됨
+function assertEveryModelHasPrice(modelsConfig: ModelsConfig, pricing: Pricing): void {
+    const configuredModelIds = new Set(Object.values(modelsConfig).map((roleModelSpec) => roleModelSpec.model))
+    const unpricedModelIds = [...configuredModelIds].filter((modelId) => !pricing[modelId])
+    if (unpricedModelIds.length === 0) return
+
+    throw new Error(
+        `config/models.yaml의 모델 ${unpricedModelIds.join(', ')}의 단가가 config/pricing.yaml에 없습니다. ` +
+            '단가를 추가해야 비용을 계산해 월 예산 · 하루 상한을 지킬 수 있습니다.'
+    )
 }
 
 /**

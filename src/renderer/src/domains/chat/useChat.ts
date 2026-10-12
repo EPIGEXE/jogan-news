@@ -4,13 +4,19 @@
 // [역할]
 // - 한 범위(기사 하나 또는 그날 브리핑)의 대화와 지금 받는 답변을 한 묶음으로 제공
 // - 질문을 보내고, 조각으로 오는 답변을 이어 붙여 표시
-// - 답변이 끝나면 질문했던 범위의 대화에 추가
+// - 답변이 끝나면 질문했던 범위의 대화에 추가하고 지난 질문 목록을 다시 읽음
 // ============================================================================
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import type { ChatEvent, ChatMessageDTO, ChatScope } from '@shared/types'
 import { api } from '@/common/lib/api'
-import { appendChatMessage, useAskChatMutation, useChatMessagesQuery, useClearChatMutation } from '@/domains/chat/queries'
+import {
+    appendChatMessage,
+    invalidateChatHistory,
+    useAskChatMutation,
+    useChatMessagesQuery,
+    useClearChatMutation
+} from '@/domains/chat/queries'
 
 // 범위를 구분하는 글자 (범위가 바뀌었는지 비교하는 용도, 범위가 없으면 빈 문자열)
 const scopeKeyOf = (chatScope: ChatScope | null) =>
@@ -65,6 +71,7 @@ export function useChat(scope: ChatScope | null): ChatState {
             if (chatEvent.type === 'delta') setStreamingAnswer((streamedText) => (streamedText ?? '') + chatEvent.text)
             else if (chatEvent.type === 'done') {
                 if (askedScope.current) appendChatMessage(queryClient, askedScope.current, chatEvent.message)
+                invalidateChatHistory(queryClient)
                 setStreamingAnswer(null)
                 pendingRequestId.current = null
             } else {
@@ -95,7 +102,7 @@ export function useChat(scope: ChatScope | null): ChatState {
                         earlyChatEvents.current.delete(requestId)
                     },
                     onError: (askError) => {
-                        setErrorMessage(askError.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+                        setErrorMessage(askError.message)
                         setStreamingAnswer(null)
                         pendingRequestId.current = null
                     }

@@ -38,7 +38,7 @@ flowchart LR
 | 하이라이트 | 본문 문장을 드래그해 형광펜(H). 번역문·원문 어디에나 긋고, 메모 카드·"이 부분 질문". 그은 기사는 자동 저장 |
 | 라이브러리 | 저장한 기사를 제목·요약·본문·번역·메모·하이라이트로 검색, 메모 있는 기사·태그로 필터 |
 | 아카이브 | 날짜별 지난 브리핑을 그날 지면 그대로 보기, 지금까지 실린 모든 기사 검색 |
-| AI 질문 | 기사 본문을 근거로 묻고 답함(답변의 ¶번호를 누르면 그 문단으로). 오늘 브리핑 전체에도 질문(#번호를 누르면 그 기사로). 빠른 질문, 답변을 메모로 옮기기 |
+| AI 질문 | 기사 본문을 근거로 묻고 답함(답변의 ¶번호를 누르면 그 문단으로). 오늘 브리핑 전체에도 질문(#번호를 누르면 그 기사로). 빠른 질문, 답변을 메모로 옮기기. 질문한 기사·브리핑은 "지난 질문" 목록에서 다시 찾기 |
 | 출처 통계 | 어디서 자료를 받는지, 얼마나 받아서 얼마나 브리핑에 실리는지(수집 → 중복 합침 → AI 선별 → 실림 → 저장), 날마다 추이, 출처별 상태·수집 기록. 7일·30일·전체와 전체 누적 |
 | 비용 관리 | 월 예산(기본 $5)·하루 상한($0.5)·실행당 토큰 상한. 예산 도달 시 작은 모델로 바꾸는 절약 모드 |
 
@@ -55,7 +55,7 @@ flowchart LR
 | 테크 뉴스 | TechCrunch, The Verge |
 | 국내 | GeekNews, 카카오·NAVER D2·토스 기술블로그 (관심 키워드에 맞는 글만) |
 | 논문 | Hugging Face Daily Papers(추천수 포함), arXiv(에이전트·언어 모델 키워드 검색) |
-| 커뮤니티 | Hacker News(키워드 검색, 60점 이상), Show HN(30점 이상), Reddit r/LocalLLaMA(하루 인기글 상위 15개) |
+| 커뮤니티 | Hacker News(키워드 검색, 60점 초과), Show HN(30점 초과), Reddit r/LocalLLaMA(하루 인기글 상위 15개) |
 
 ### 1.4 기술 스택
 
@@ -202,7 +202,7 @@ flowchart TB
 | `ArticleService` | `article-service.ts` | 기사 상세 조회, 읽음, 저장·저장 해제, 메모, 번역 요청, 저장 후 보강(Worker 결과 반영과 화면 알림) |
 | `TagService` | `tag-service.ts` | 태그 붙이기·떼기·목록, 이름 정리 규칙 |
 | `HighlightService` | `highlight-service.ts` | 하이라이트 긋기·메모 수정·지우기, 겹친 범위 합치기 |
-| `ChatService` | `chat-service.ts` | 대화 조회·질문·삭제, 질문과 답변 저장, 답변 조각 전달, 빠른 질문 목록 |
+| `ChatService` | `chat-service.ts` | 대화 조회·질문·삭제, 질문과 답변 저장, 답변 조각 전달, 지난 질문 목록, 빠른 질문 목록 |
 | `SettingsService` | `settings-service.ts` | API 키, 앱 설정(예산·브리핑 크기), 사용 비용 요약, 자동 시작 |
 | `BriefingService` | `briefing-service.ts` | 브리핑 생성 흐름(네트워크 확인·상태 표시·Worker 실행·알림), 미리 수집 요청 전달 |
 | `DiagnosticsService` | `diagnostics-service.ts` | 진단 화면용 기록·알림 테스트·네트워크 점검·트리거 상태 |
@@ -281,11 +281,11 @@ flowchart TB
 | 폴더 | 내용 |
 |---|---|
 | `app/` | `App.tsx`(제목 표시줄·메뉴 틀과 화면 이동 처리), `router.tsx`(주소와 화면 연결), `providers/`(`QueryProvider`: 쿼리 캐시와 Main 알림 연결), `layout/`(`NavRail` 제호·메뉴, `TitleBar` 제목 표시줄·창 버튼), `global/`(`Toaster`, `ShortcutHelp`), `styles/`(`tokens.css`, `app.css`, `fonts.ts`). 진입점 `main.tsx`는 `src/renderer/src` 바로 아래 |
-| `screens/<화면>/` | `page.tsx`와, 그 화면에서만 쓰는 `components/`(출처 화면의 `Funnel`·`DailyBars`·`SourceTable`, 설정 화면의 `ApiKeyField`)와 `queries.ts`(설정·출처·진단 화면의 조회·변경 훅) |
+| `screens/<화면>/` | `page.tsx`와, 그 화면에서만 쓰는 `components/`(출처 화면의 `Funnel`·`DailyBars`·`SourceTable`, 설정 화면의 `ApiKeyField`, 질문 화면의 `DigestChat`·`ChatHistoryList`·`ChatHistoryArticle`·`ChatHistoryDigest`)와 `queries.ts`(설정·출처·진단 화면의 조회·변경 훅) |
 | `domains/article/` | 한 도메인 안에서 역할별로 나눕니다. `components/`(목록 행 `ArticleRow`·`LibraryRow`·`RowReadButton`·`ArticleGroup`, 옆 패널 개요 `ArticlePreview`, 본문 `ArticleBody`, `MemoPad`·`TagList`·`WhyItMatters`), `views/`(기사 읽기 화면 `ArticleReader`, 목록+패널 조합 `ItemListView`), `hooks/`(`useAutoTranslate`·`useBodyMode`), `queries.ts`(조회·변경 훅), `cache.ts`(여러 캐시를 함께 고치는 `patchArticle`), `types.ts`(`ArticleView`·`ArticleActions`) |
 | `domains/digest/` | 브리핑 한 호(`DigestView`: 오늘·아카이브 날짜별), 지면 머리, 생성 진행, `queries.ts`(브리핑·날짜 목록·만드는 중 여부·지금 만들기), 브리핑과 진행 상황을 묶은 `useDigest` |
 | `domains/highlight/` | 하이라이트 목록·카드·선택 막대, 위치 계산(`highlight.ts`), `queries.ts`(긋기·메모·지우기), `cache.ts`(`setHighlights`) |
-| `domains/chat/` | 질문 패널(`ChatPanel`), 읽기 화면의 질문 단(`ArticleChat`), `queries.ts`(지난 대화·빠른 질문·질문 보내기·지우기), 대화와 답변 스트리밍을 묶은 `useChat` |
+| `domains/chat/` | 질문 패널(`ChatPanel`), 읽기 화면의 질문 단(`ArticleChat`), `queries.ts`(지난 대화·지난 질문 목록·빠른 질문·질문 보내기·지우기), 대화와 답변 스트리밍을 묶은 `useChat` |
 | `common/ui/` | 기사를 모르는 기본 부품(버튼, 탭, 전환기, 대화상자, 입력, 자리 표시, 제호, 안내). 토큰 유틸리티만 사용 |
 | `common/layout/` | 3단 틀(`AppShell`·`ListPane`·`DetailPane`·`SinglePane`), 너비 조절 손잡이, 단일 단 페이지 틀, 목록 머리 |
 | `common/lib/` | Main 호출(`api`), 쿼리 키(`queryKeys`), 화면 주소(`paths`), 비용(`useUsageQuery`), `cn`, 날짜·금액 표시(`format`), 토스트(`toast`), 목록 단축키(`useListKeys`), 탭 밑줄 이동(`useSlidingIndicator`) |
@@ -305,12 +305,14 @@ flowchart TB
 | `/archive`, `/archive?q=검색어` | 아카이브 날짜 목록, 검색 결과 |
 | `/archive/search/:itemId?q=검색어` | 검색 결과에서 연 읽기 화면 |
 | `/archive/:date`, `/archive/:date/:itemId` | 그날 브리핑, 그 안의 읽기 화면 |
-| `/ask`, `/sources`, `/settings`, `/diagnostics` | 질문, 출처, 설정, 진단 |
+| `/ask`, `/ask/history` | 질문 화면의 두 탭: 오늘 브리핑에 질문, 지난 질문 목록 |
+| `/ask/history/item/:itemId`, `/ask/history/digest/:date` | 지난 질문에서 연 기사의 읽기 화면(질문 탭), 그날 브리핑의 대화 |
+| `/sources`, `/settings`, `/diagnostics` | 출처, 설정, 진단 |
 
 - **틀과 화면:** `App`이 제목 표시줄·메뉴를 그리고, 주소에 맞는 화면을 그 안(`Outlet`)에 표시합니다. 최신 브리핑과 생성 진행 상황은 `App`이 들고 있다가 오늘·질문 화면에 넘깁니다(`useOutletContext`). 화면을 옮겨도 진행 상황이 끊기지 않게 하기 위함입니다.
 - **읽기 화면:** 어떤 기사를 읽는 중인지는 주소에 있습니다. 목록 뷰(`DigestView`, `ItemListView`)는 주소를 모르고 `readingItemId`·`onRead`만 받으며, 화면(`page.tsx`)이 `useReadingRoute`로 주소와 잇습니다. 목록에서 열면 방문 기록에 쌓이고, 읽는 중 이전·다음 기사로 옮기면 기록을 바꿔치기해서 뒤로 가면 바로 목록입니다.
 - **뒤로·앞으로:** Alt+←/→와 마우스 옆 버튼을 `App`에서 처리합니다(Electron은 기본으로 처리하지 않음).
-- **다른 화면에서 기사 열기:** 질문 화면의 인용은 `/today/기사번호`로 이동합니다. 따로 넘겨주는 상태가 없습니다.
+- **다른 화면에서 기사 열기:** 질문 화면의 인용은 `/today/기사번호`로, 지난 브리핑 대화의 인용은 `/archive/날짜/기사번호`로 이동합니다. 따로 넘겨주는 상태가 없습니다.
 - **Main의 화면 이동 요청**(알림 클릭, 트레이 메뉴)은 화면 이름(`Route`)으로 오고, `App`이 주소로 바꿔 이동합니다.
 
 #### 화면 데이터: TanStack Query
@@ -324,6 +326,7 @@ flowchart TB
 | 기사 상세 | `['item',id]` | 옆 패널 개요(라이브러리·검색), 기사 읽기 화면(본문·번역·하이라이트) |
 | 검색 결과·태그 | `['search',조건]`, `['tags']` | 라이브러리, 아카이브 검색 |
 | 대화·빠른 질문 | `['chat',범위]`, `['quickActions']` | 질문 단, 질문 화면 |
+| 지난 질문 목록 | `['chatHistory']` | 질문 화면의 "지난 질문" 탭. 질문을 보내거나 답변이 끝나거나 대화를 지우면 다시 읽음 |
 | 비용·설정·키·자동 시작 | `['usage']`, `['settings']`, `['apiKey']`, `['autostart']` | 메뉴 아래 비용, 설정 |
 | 출처 통계 | `['sources',기간]` | 출처 |
 | 만드는 중 여부 | `['running']` | 오늘 화면, 제목 표시줄 |
@@ -621,7 +624,7 @@ sequenceDiagram
       W-->>B: 결과 (머리글, 기사 수, 비용)
       B->>S: 새 브리핑 (툴팁에 오늘의 한 줄)
       B->>R: 브리핑 갱신 알림
-      B->>A: "Jogan · 10/8(수)" + 오늘의 한 줄
+      B->>A: "📰 Jogan · 10/8(수)" + 오늘의 한 줄
       A-->>R: 클릭하면 오늘 화면을 열고 상태를 대기로
     else 실패 (API 키 없음, 예산 초과 등)
       B->>S: 실패 (툴팁에 이유)
@@ -668,7 +671,7 @@ flowchart TB
 #### ① 수집
 - `config/sources.yaml`의 켜진 소스마다 `collectSource`(`collectors/index.ts`)를 동시에 실행합니다. RSS·HF Papers·arXiv·Hacker News·GitHub 릴리스 수집기가 결과를 같은 형식으로 돌려줍니다.
 - 소스 하나가 실패해도(타임아웃 15초) 나머지는 계속 진행하고, 실패한 소스는 브리핑 통계에 기록합니다.
-- `keywordFilter`가 켜진 피드(GeekNews·국내 기술블로그 등)는 관심 키워드에 맞는 글만, Hacker News는 키워드로 검색해 60점 이상, Show HN은 30점 이상만 가져옵니다. Reddit r/LocalLLaMA는 하루 인기글 피드의 앞 15개만 받습니다(`maxItems`).
+- `keywordFilter`가 켜진 피드(GeekNews·국내 기술블로그 등)는 관심 키워드에 맞는 글만, Hacker News는 키워드로 검색해 60점 초과, Show HN은 30점 초과만 가져옵니다. Reddit r/LocalLLaMA는 하루 인기글 피드의 앞 15개만 받습니다(`maxItems`).
 - **GitHub 릴리스:** 감시 목록의 저장소마다 `releases.atom`을 읽어 메이저·마이너 버전(x.y, x.y.0)만 받습니다. 패치 버전과 rc·beta·dev 같은 프리릴리스는 버립니다(`releaseVersion`). 한 저장소에서 여러 패키지를 내면(`langchain-ai/langgraph`) `match`로 패키지를 고릅니다. 저장소 하나가 실패해도 나머지는 받습니다. 릴리스 노트가 곧 본문입니다.
 
 #### ② 저장·중복 합치기
@@ -817,7 +820,7 @@ flowchart LR
 
 ### 4.6 AI 질문
 
-기사 읽기 화면의 "질문" 단(또는 `/` 키)에서 기사 한 건에, 메뉴의 "질문" 화면에서 그날 브리핑 전체에 질문합니다.
+기사 읽기 화면의 "질문" 단(또는 `/` 키)에서 기사 한 건에, 메뉴의 "질문" 화면에서 그날 브리핑 전체에 질문합니다. 질문한 기사와 브리핑은 질문 화면의 "지난 질문" 탭에 모입니다.
 
 ```mermaid
 sequenceDiagram
@@ -863,6 +866,7 @@ sequenceDiagram
 - **브리핑 채팅의 인용:** `#3`을 누르면 오늘 화면으로 가서 그 기사를 선택합니다(분류 필터는 풀림). 마우스를 올리면 기사 제목이 보입니다.
 - **답변 실패:** Worker 호출이 실패하면 Main이 진단 기록을 남기고 화면에 오류를 알립니다. 저장한 질문은 대화에 남습니다.
 - **대화 지우기:** 그 범위의 대화만 지웁니다.
+- **지난 질문:** 질문 화면의 "지난 질문" 탭이 질문한 적 있는 기사·브리핑을 최근에 질문한 것부터 보여줍니다(마지막 질문 날짜, 제목, 출처, 질문 수, 가장 최근 질문). `ChatService.listChatHistory`가 대화별 질문 수와 최근 질문을 한 번에 읽고(`chatRepository.listChatQuestionSummaries`), 기사 제목·출처와 브리핑의 한 줄을 붙입니다. 기사나 브리핑이 없어진 대화는 목록에서 빠집니다. J/K로 고르고 Enter나 "보기 →"로 열면 기사는 읽기 화면이 질문 탭으로, 브리핑은 그날 브리핑의 대화로 열립니다. 질문해도 기사는 저장되지 않으므로, 질문한 기사를 다시 찾는 길은 이 목록입니다.
 
 ### 4.7 설정과 API 키
 
@@ -925,6 +929,7 @@ sequenceDiagram
 | Worker 비정상 종료 | Main이 3초 뒤 다시 띄움. 진행 중이던 요청은 실패로 돌려주고, 다시 뜨기를 기다리는 동안 들어온 요청은 준비되면 보냄. 그동안에도 화면용 조회와 저장·메모·태그·하이라이트는 Main이 직접 처리 |
 | Worker가 준비도 못 하고 연달아 3번 종료 (DB·설정 파일 오류 등) | 다시 띄우기를 그만두고, 이후 Worker 호출은 바로 실패로 답함 |
 | Main 시작 실패 (DB 열기·스키마 변경 적용·설정 파일 읽기 오류 등) | 이유를 오류 창으로 알리고 종료 |
+| `models.yaml`에 적힌 모델의 단가가 `pricing.yaml`에 없음 | 설정 읽기를 거부해 시작 실패로 처리(어느 모델인지 오류 창에 표시). 비용을 세지 못하면 월 예산·하루 상한이 걸리지 않기 때문 |
 | 두 프로세스가 동시에 DB에 쓰려 함 | 뒤에 온 쪽이 5초까지 기다림 (3.6절) |
 | 앱이 생성 도중 꺼짐 | 다음에 Worker가 시작할 때 `running`으로 남은 실행을 오류로 정리. 오늘 브리핑이 없으므로 다음 계기에 다시 생성 |
 

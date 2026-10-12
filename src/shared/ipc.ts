@@ -12,6 +12,7 @@
 import type {
     AppSettings,
     ChatEvent,
+    ChatHistoryEntryDTO,
     ChatMessageDTO,
     ChatScope,
     DigestDTO,
@@ -60,6 +61,7 @@ export const IPC = {
     getChat: 'chat:get',
     ask: 'chat:ask',
     clearChat: 'chat:clear',
+    listChatHistory: 'chat:list-history',
     chatEvent: 'chat:event', // 알림: AI 답변 스트리밍
     getQuickActions: 'chat:quick-actions',
     navigate: 'app:navigate', // 알림: 화면 이동 요청
@@ -156,6 +158,7 @@ export interface JoganApi {
     // 질문을 보내고 바로 돌아옴. 답변은 onChatEvent로 requestId와 함께 흘러옴
     ask(chatScope: ChatScope, question: string): Promise<{ requestId: string; userMessage: ChatMessageDTO }>
     clearChat(chatScope: ChatScope): Promise<void> // 그 범위의 대화 삭제
+    listChatHistory(): Promise<ChatHistoryEntryDTO[]> // 지난 질문 목록: 질문한 적 있는 기사 · 브리핑 (최근에 질문한 것부터)
     getQuickActions(): Promise<QuickActions> // 설정 파일에 정해 둔 빠른 질문 목록
     onChatEvent(onChatEvent: (chatEvent: ChatEvent) => void): () => void // AI 답변 스트리밍 구독 (requestId로 자기 질문의 것만 골라 씀)
     // 설정

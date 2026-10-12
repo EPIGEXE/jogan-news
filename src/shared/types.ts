@@ -169,6 +169,16 @@ export interface ChatMessageDTO {
     createdAt: string // 저장한 시각
 }
 
+// 지난 질문 목록의 한 줄 (대화가 있는 범위 하나)
+export interface ChatHistoryEntryDTO {
+    scope: ChatScope // 기사 하나 또는 그날 브리핑
+    title: string // 기사면 한국어 제목(없으면 원제), 브리핑이면 그날의 한 줄
+    sourceName: string | null // 기사면 출처 이름, 브리핑이면 null
+    questionCount: number // 내가 한 질문 수
+    lastQuestion: string // 가장 최근 질문
+    lastAskedAt: string // 가장 최근 질문 시각
+}
+
 // 답변 스트리밍 중 Worker에서 Main을 거쳐 화면으로 오는 알림
 // requestId는 질문할 때 받은 요청 번호 (자기 질문의 알림만 골라 쓰는 데 사용)
 export type ChatEvent =

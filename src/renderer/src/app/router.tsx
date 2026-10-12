@@ -3,7 +3,7 @@
 //
 // [역할]
 // - 주소와 화면을 연결 (어느 주소에서 어느 화면을 보여줄지)
-// - 기사 읽기 화면 · 아카이브 날짜 · 검색어를 주소에 담아 뒤로 · 앞으로 이동 가능
+// - 기사 읽기 화면 · 아카이브 날짜 · 검색어 · 지난 질문에서 연 대화를 주소에 담아 뒤로 · 앞으로 이동 가능
 // - 주소는 # 뒤에 붙는 방식 사용 (설치판은 file://로 열려서 일반 경로 방식이 동작하지 않음)
 // ============================================================================
 import { createHashRouter, Navigate } from 'react-router'
@@ -27,7 +27,10 @@ export const router = createHashRouter([
             { path: 'archive', element: <ArchivePage /> }, // 날짜 목록 (?q=검색어가 붙으면 검색 결과)
             { path: 'archive/search/:itemId', element: <ArchivePage /> }, // 검색 결과에서 연 읽기 화면
             { path: 'archive/:date/:itemId?', element: <ArchivePage /> }, // 그날 브리핑과 그 안의 읽기 화면
-            { path: 'ask', element: <AskPage /> },
+            { path: 'ask', element: <AskPage /> }, // 최신 브리핑에 질문
+            { path: 'ask/history', element: <AskPage /> }, // 지난 질문 목록
+            { path: 'ask/history/item/:itemId', element: <AskPage /> }, // 지난 질문에서 연 기사의 읽기 화면
+            { path: 'ask/history/digest/:date', element: <AskPage /> }, // 지난 질문에서 연 그날 브리핑의 대화
             { path: 'sources', element: <SourcesPage /> },
             { path: 'settings', element: <SettingsPage /> },
             { path: 'diagnostics', element: <DiagnosticsPage /> },
